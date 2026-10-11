@@ -218,3 +218,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ── NWGMS content rule: real digests/messages must NEVER be committed ──
+digests/
+quarantine/
+real/
+*.eml
+*.msg
+*.vtt
+*.docx
+*.xlsx
+.env
+.env.*
