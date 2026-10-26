@@ -1,0 +1,37 @@
+{
+  "schema_version": "1",
+  "generated": "2026-10-26T12:30:00+00:00",
+  "lane": "A",
+  "entries": [
+    {
+      "source": "email",
+      "received": "2026-10-26T09:12:30Z",
+      "counterpart": "Riley Placeholder (Integration Team)",
+      "systems": ["Hive/Epic", "TIE"],
+      "refs": ["#10001"],
+      "request_type": "incident/outage",
+      "action_needed": "reply",
+      "direction": "owed-by-me"
+    },
+    {
+      "source": "email",
+      "received": "2026-10-26T10:41",
+      "counterpart": "Alex Example, Lab Manager",
+      "systems": ["Clarity", "Other"],
+      "refs": ["IG-10002", "DOC9001"],
+      "request_type": "access request",
+      "action_needed": "approve",
+      "direction": "owed-by-me",
+      "due": "2026-10-28"
+    },
+    {
+      "source": "email",
+      "received": "2026-10-26T11:05",
+      "counterpart": "Jo Invented, Team Lead",
+      "systems": ["Monday.com"],
+      "request_type": "FYI",
+      "action_needed": "none",
+      "direction": "owed-by-me"
+    }
+  ]
+}

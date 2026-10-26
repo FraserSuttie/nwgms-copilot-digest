@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "generated": "2026-10-26T07:30:00Z",
+  "lane": "A",
+  "entries": [
+    {"source": "email", "received": "2026-10-26T06:00", "counterpart": "Alex Example {{PHONE_MOBILE}}", "systems": ["iGene"], "request_type": "FYI", "action_needed": "none", "direction": "owed-by-me"},
+    {"source": "email", "received": "2026-10-26T06:01", "counterpart": "Alex Example", "systems": ["iGene"], "request_type": "FYI", "action_needed": "none", "direction": "owed-by-me", "topic": "{{SAMPLE_ID}}"},
+    {"source": "email", "received": "2026-10-26T06:02", "counterpart": "Alex Example", "systems": ["iGene"], "refs": ["{{REFERRAL_ID}}"], "request_type": "FYI", "action_needed": "none", "direction": "owed-by-me"},
+    {"source": "email", "received": "2026-10-26T06:03", "counterpart": "Alex Example", "systems": ["iGene"], "request_type": "FYI", "action_needed": "none", "direction": "owed-by-me", "topic": "Query about {{NHS_SPACED}}"},
+    {"source": "email", "received": "2026-10-26T06:04", "counterpart": "Alex Example", "systems": ["iGene"], "request_type": "FYI", "action_needed": "none", "direction": "owed-by-me", "extra_field": "{{DOB_SLASH}}"},
+    {"source": "email", "received": "2026-10-26T06:05", "counterpart": "Alex Example", "systems": ["iGene"], "request_type": "FYI", "action_needed": "none", "direction": "owed-by-me", "topic": "{{PATIENT_ID}}"},
+    {"source": "email", "received": "2026-10-26T06:06", "counterpart": "Alex Example", "systems": ["iGene {{POSTCODE}}"], "request_type": "FYI", "action_needed": "none", "direction": "owed-by-me"},
+    {"source": "email", "received": "2026-10-26T06:07", "counterpart": "{{EXT_EMAIL}}", "systems": ["iGene"], "request_type": "FYI", "action_needed": "none", "direction": "owed-by-me"}
+  ]
+}

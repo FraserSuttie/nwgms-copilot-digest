@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "generated": "2026-10-26T16:30:00Z",
+  "lane": "B4",
+  "entries": [
+    {
+      "source": "meeting-recap",
+      "received": "2026-10-26T13:00",
+      "counterpart": "Jo Invented, Team Lead",
+      "systems": ["iGene", "Clarity"],
+      "request_type": "governance/SOP",
+      "action_needed": "review",
+      "direction": "awaited-from-them",
+      "due": "2026-11-02"
+    }
+  ]
+}

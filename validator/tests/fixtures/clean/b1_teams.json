@@ -1,0 +1,27 @@
+{
+  "schema_version": "1",
+  "generated": "2026-10-26T16:30:00Z",
+  "lane": "B1",
+  "entries": [
+    {
+      "source": "teams-chat",
+      "received": "2026-10-26T15:20",
+      "counterpart": "Alex Example, Lab Manager",
+      "systems": ["DLIMS"],
+      "request_type": "scheduling",
+      "action_needed": "attend",
+      "direction": "fyi"
+    },
+    {
+      "source": "teams-channel",
+      "received": "2026-10-26T14:02",
+      "counterpart": "Sam Sample, Test Analyst",
+      "systems": ["StarLIMS", "Congenica"],
+      "refs": ["CRF-2026-902"],
+      "request_type": "testing/UAT",
+      "action_needed": "review",
+      "direction": "owed-by-me",
+      "topic": "Release testing"
+    }
+  ]
+}
