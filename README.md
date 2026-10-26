@@ -31,7 +31,7 @@ Outlook / Teams / meeting recaps
 |---|---|---|
 | 0 | Design, schema, Copilot prompt v0, validator v0, compliance screen | 🔜 Starting 12 Oct 2026 |
 | 1 | Manual runs: Fraser runs the prompt, the validator gates, Claude briefs | Not started |
-| 2 | Automated via Power Automate / scheduled Copilot prompt, validator-gated | Not started (needs Phase 1 evidence + IG/DPO) |
+| 2 | Automated via Power Automate / scheduled Copilot prompt, validator-gated | Not started (needs Phase 1 evidence) |
 | 3 | Trust-approved Claude with DPA + direct Microsoft 365 connector | Aspirational |
 
 ## Rules
