@@ -58,7 +58,7 @@ One digest file per run. One entry per thread. Only these fields.
 | `received` | date and time | 0 |
 | `counterpart` | name and role or team, resolved against People-Directory, max 60 characters | 1 |
 | `systems` | fixed list: iGene, Clarity, DLIMS, StarLIMS, Congenica, Hive/Epic, TIE, Monday.com, Other | 0 |
-| `refs` | CRF-YYYY-NNN, Genial ticket (`#NNNNN` when first raised), Jira ticket (`IG-NNNNN` once Genial adopts it), Monday item ID, Q-Pulse DOC number only | 1 |
+| `refs` | CRF-YYYY-NNN, Genial ticket (`#NNNNN` when first raised), Jira ticket (`IG-NNNNN` once Genial adopts it), Q-Pulse DOC number only | 1 |
 | `request_type` | fixed list: access request, config change, incident/outage, testing/UAT, report/query, scheduling, governance/SOP, FYI | 0 |
 | `action_needed` | fixed list: reply, review, approve, attend, none | 0 |
 | `direction` | owed-by-me (Lane A is always this); later awaited-from-them, fyi | 0 |
@@ -158,3 +158,4 @@ The state file has a fixed small size (target 3 KB or less) and contains deltas 
 - Scheduled flow, not a new-email trigger.
 - Phase 1 promotion into `_Intake` is manual.
 - Repo holds the canonical spec; the vault holds a pointer note.
+- Monday item IDs are not allowed in `refs`. A 10-digit ID cannot be told apart from an NHS number, and the CRF number identifies the item instead.
