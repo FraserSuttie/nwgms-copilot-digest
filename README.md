@@ -34,6 +34,12 @@ Outlook / Teams / meeting recaps
 | 2 | Automated via Power Automate / scheduled Copilot prompt, validator-gated | Not started (needs Phase 1 evidence) |
 | 3 | Trust-approved Claude with DPA + direct Microsoft 365 connector | Aspirational |
 
+## Content lane (in progress)
+
+A local deterministic stripper (`stripper/`, branch `content-lane`) is being built as a content-bearing
+alternative to the allowlist digest. Synthetic data only so far. See [`stripper/README.md`](stripper/README.md)
+and `docs/decisions/0002` and `0003`.
+
 ## Rules
 
 See [`CLAUDE.md`](CLAUDE.md). In short: **no real messages or digests in this repo, ever.** Synthetic fixtures only.
