@@ -46,7 +46,7 @@ class RecallReportTests(unittest.TestCase):
                     self.assertNotIn(v, rep)
 
     def test_deterministic_categories_have_full_recall(self):
-        per, _, _, _, _ = R.evaluate(self.msgs, use_ner=False)
+        per, *_ = R.evaluate(self.msgs, use_ner=False)
         deterministic = ["dob", "nhs_number", "phone", "address", "postcode", "patient_email", "mrn", "referral_no",
                          "sample_no", "worksheet_no", "qc_no", "case_no", "gmc_id", "external_contact_email",
                          "clinical_patient_level", "url_personal"]
@@ -55,7 +55,7 @@ class RecallReportTests(unittest.TestCase):
             self.assertEqual(per[cat]["full"], per[cat]["planted"], cat)
 
     def test_names_are_not_claimed_without_ner(self):
-        per, _, _, _, _ = R.evaluate(self.msgs, use_ner=False)
+        per, *_ = R.evaluate(self.msgs, use_ner=False)
         self.assertEqual(per["patient_name"]["full"], 0)
 
 
