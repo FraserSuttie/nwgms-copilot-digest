@@ -207,20 +207,43 @@ def check_state_dir(path: Path) -> Path:
 
 
 class State:
-    FILE = "namegate-state.json"
+    """Local review state. With a protector (always, outside tests) it is stored encrypted.
 
-    def __init__(self, path: Path):
+    The plaintext `namegate-state.json` from slice 1 is migrated into the protected file on first
+    open and then removed.
+    """
+    FILE = "namegate-state.json"       # legacy / test-only plaintext
+    PFILE = "namegate-state.dpapi"
+
+    def __init__(self, path: Path, protector=None):
         self.dir = check_state_dir(path)
-        self.file = self.dir / self.FILE
+        self.protector = protector
+        self.file = self.dir / (self.PFILE if protector else self.FILE)
         self.data = {"staff": [], "external": [], "ignore": [], "counts": {}}
+        legacy = self.dir / self.FILE
         if self.file.exists():
-            self.data.update(json.loads(self.file.read_text(encoding="utf-8")))
+            self.data.update(self._read(self.file))
+        elif protector and legacy.exists():
+            self.data.update(json.loads(legacy.read_text(encoding="utf-8")))
+            self.save()
+            legacy.unlink()
+
+    def _read(self, f: Path) -> dict:
+        raw = f.read_bytes()
+        return json.loads((self.protector.unprotect(raw) if self.protector else raw).decode("utf-8"))
 
     def save(self) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
+        raw = json.dumps(self.data, indent=1, sort_keys=True).encode("utf-8")
         tmp = self.file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.data, indent=1, sort_keys=True), encoding="utf-8")
+        tmp.write_bytes(self.protector.protect(raw) if self.protector else raw)
         os.replace(tmp, self.file)
+
+    def purge_counts(self) -> int:
+        """Forget the unknown-name counts (they may include patients' names). Keeps the classifications."""
+        n = len(self.data["counts"])
+        self.data["counts"] = {}
+        return n
 
     def people(self, base: People) -> People:
         out = People(dict(base.full), {k: set(v) for k, v in base.tokens.items()})

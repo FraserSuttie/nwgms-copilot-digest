@@ -3,8 +3,11 @@
     python stripper/review.py --state <DIR> list [--min 2]
     python stripper/review.py --state <DIR> classify "First Last" staff|external|ignore
     python stripper/review.py --state <DIR> triage [--min 2]
+    python stripper/review.py --state <DIR> purge        # forget unknown-name counts, keep classifications
 
-<DIR> must be a local folder outside the repo and outside OneDrive. Output is names and counts
+<DIR> must be a local folder outside the repo and outside OneDrive (default for the stripper:
+%LOCALAPPDATA%\\nwgms-stripper). The state file is encrypted with Windows DPAPI; a plaintext state
+file from slice 1 is migrated and removed on first open. Output is names and counts
 only, never surrounding text. For `staff` it prints a People-Directory row for you to paste
 yourself. Nothing is written to the vault.
 """
@@ -16,6 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import keystore as K  # noqa: E402
 import namegate as G  # noqa: E402
 
 
@@ -55,24 +59,30 @@ def cmd_triage(st: G.State, min_count: int) -> int:
     return 0
 
 
-def main(argv=None) -> int:
+def main(argv=None, protector=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--state", required=True, type=Path)
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("list", "triage"):
         sp = sub.add_parser(name)
         sp.add_argument("--min", type=int, default=2)
+    sub.add_parser("purge")
     cp = sub.add_parser("classify")
     cp.add_argument("name")
     cp.add_argument("kind", choices=("staff", "external", "ignore"))
     a = ap.parse_args(argv)
     try:
-        st = G.State(a.state)
-    except ValueError as exc:
+        st = G.State(a.state, protector or K.default_protector())
+    except (ValueError, OSError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
     if a.cmd == "list":
         return cmd_list(st, a.min)
+    if a.cmd == "purge":
+        n = st.purge_counts()
+        st.save()
+        print(f"purged counts for {n} name(s)")
+        return 0
     if a.cmd == "classify":
         return cmd_classify(st, a.name, a.kind)
     return cmd_triage(st, a.min)

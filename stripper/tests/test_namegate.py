@@ -23,6 +23,9 @@ import generate as C  # noqa: E402
 import namegate as G  # noqa: E402
 import recall as R  # noqa: E402
 import review as RV  # noqa: E402
+import keystore as K  # noqa: E402
+
+TP = K.TestOnlyProtector()
 
 DIRECTORY = C.directory_markdown()
 
@@ -126,33 +129,33 @@ class ReviewAndState(unittest.TestCase):
 
     def test_classify_staff_extends_people_and_prints_directory_row(self):
         with tempfile.TemporaryDirectory() as d:
-            st = G.State(Path(d))
+            st = G.State(Path(d), TP)
             st.merge_counts(Counter({"dana moss": 3}))
             st.save()
             out = io.StringIO()
             with redirect_stdout(out):
-                self.assertEqual(RV.main(["--state", d, "classify", "Dana Moss", "staff"]), 0)
+                self.assertEqual(RV.main(["--state", d, "classify", "Dana Moss", "staff"], TP), 0)
             self.assertIn("| Moss | Dana Moss | TBC | NWGMS | |", out.getvalue())
-            st2 = G.State(Path(d))
+            st2 = G.State(Path(d), TP)
             self.assertNotIn("dana moss", st2.data["counts"])
             self.assertEqual(run("Ask Dana Moss.", ["Dana Moss"], st2.people(G.parse_directory(DIRECTORY)))["Dana Moss"],
                              ("pass", "FULL_LOCAL"))
 
     def test_list_shows_names_and_counts_only(self):
         with tempfile.TemporaryDirectory() as d:
-            st = G.State(Path(d))
+            st = G.State(Path(d), TP)
             st.merge_counts(Counter({"dana moss": 3, "once only": 1}))
             st.save()
             out = io.StringIO()
             with redirect_stdout(out):
-                RV.main(["--state", d, "list", "--min", "2"])
+                RV.main(["--state", d, "list", "--min", "2"], TP)
             self.assertIn("dana moss", out.getvalue())
             self.assertNotIn("once only", out.getvalue())
 
     def test_cli_refuses_state_dir_in_repo(self):
         err = io.StringIO()
         with redirect_stderr(err):
-            self.assertEqual(RV.main(["--state", str(ROOT / "stripper" / "state"), "list"]), 2)
+            self.assertEqual(RV.main(["--state", str(ROOT / "stripper" / "state"), "list"], TP), 2)
 
 
 class GateOnCorpus(unittest.TestCase):
