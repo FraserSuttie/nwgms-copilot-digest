@@ -51,3 +51,13 @@ Key store (`stripper/keystore.py`), in `%LOCALAPPDATA%\nwgms-stripper` (local, n
 - Passphrase encryption: needs a cipher outside the standard library.
 - Hex or base32 codes: digit runs can match PATIENT_NUMBER, SIX_DIGITS or MRN patterns.
 - 6-character codes: about 26 bits, collisions expected around 8,000 values a year.
+
+## Update (27 Oct 2026, after the first local run)
+- The DPAPI round trip and the 87-test suite pass on Fraser's laptop.
+- Corpus run with NER active: 0 leaks across 17 planted categories; residual preview has 0
+  fail-severity hits, plus review-severity DOB_KEYWORD (326) and URL_EXTERNAL (156).
+- Decision: the residual scan allows DOB_KEYWORD (the cue word alone carries nothing).
+- The URL_EXTERNAL remnants are the personal URLs: only their path segment was replaced. The next
+  slice replaces the whole URL with [URL].
+- recall.py scores attachment filenames by detection (50%); the transform path (allowlist label)
+  is the real control, so the metric moves there.
