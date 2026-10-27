@@ -9,6 +9,7 @@ PATIENT_LAST = ["Aldermoor", "Thornquist", "Pellowick", "Vandersloot", "Quillfea
 EXT_FIRST = ["Rosalind", "Barnaby", "Philippa", "Evander", "Marguerite", "Lucian", "Isolde", "Tobias"]
 EXT_LAST = ["Wetherbourne", "Ashgrove-Lyle", "Merriwick", "Stansbury-Cole", "Hollowell", "Pennyfeather", "Cragmoor", "Abernethy-Roe"]
 STAFF_DIR = ["Ada Fairweather", "Callum Ridgeway", "Priya Lindqvist", "Oren Maddox", "Beatrix Holloway", "Ewan Tallis"]
+DIRECTORY_EXTRA = ["Imogen Ridgeway"]  # shares a surname with Callum Ridgeway: bare "Ridgeway" is ambiguous
 STAFF_NON_DIR = ["Hester Brindle", "Dominic Aspinwall", "Sunita Marchbanks", "Rory Quennell", "Zoe Kettleby"]
 NICKNAMES = {"Marlowe": "Marly", "Odette": "Dettie", "Brannock": "Bran", "Tamsin": "Tammy", "Ignatius": "Iggy"}
 

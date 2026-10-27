@@ -34,10 +34,10 @@ DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "e
 CATEGORIES_STRIP = [
     "patient_name", "dob", "nhs_number", "phone", "address", "postcode", "patient_email", "mrn",
     "referral_no", "sample_no", "worksheet_no", "qc_no", "case_no", "gmc_id",
-    "external_contact_name", "external_contact_email", "staff_name_nondirectory",
+    "external_contact_name", "external_contact_email", "staff_name_nondirectory", "staff_name_ambiguous",
     "attachment_filename", "clinical_patient_level", "url_personal",
 ]
-CATEGORIES_KEEP = ["staff_name_directory", "config_vocab", "trust_email"]
+CATEGORIES_KEEP = ["staff_name_directory", "staff_name_header", "config_vocab", "trust_email"]
 
 
 @dataclass
@@ -157,45 +157,52 @@ class Gen:
 
 
 # -- message assembly ------------------------------------------------------
+def _addr(name: str, r: random.Random) -> str:
+    f, l = name.lower().split()
+    return f"{f}.{l}" + "@" + r.choice(V.TRUST_DOMAINS)
+
+
 def build_email(g: Gen, i: int) -> dict:
     r = g.r
+    everyone = V.STAFF_DIR + V.STAFF_NON_DIR
+    sender = r.choice(everyone)
+    to = r.choice([p for p in V.STAFF_DIR if p != sender])
+    cc = r.sample([p for p in everyone if p not in (sender, to)], r.randint(0, 2))
+    header_names = {sender, to, *cc}
+    people = [[p, _addr(p, r)] for p in (sender, to, *cc)]
     b = Builder()
-    staff_dir = r.choice(V.STAFF_DIR)
-    b.add("Hi ").plant("staff_name_directory", staff_dir.split()[0]).add(",\n\n")
-    n_items = r.randint(2, 5)
+    b.add("Hi ").plant("staff_name_directory", to.split()[0]).add(",\n\n")
     kinds = r.sample(["ref", "pt", "nhs", "dob", "phone", "addr", "mrn", "ext", "clin", "gmc",
-                      "ws", "benign", "config", "nonstaff", "url", "pemail"], n_items)
+                      "ws", "benign", "config", "nonstaff", "url", "pemail", "stafftwice"], r.randint(2, 5))
     meta = {"has_ref": False, "has_clin": False}
     for k in kinds:
-        _sentence(g, b, k, meta)
+        _sentence(g, b, k, meta, header_names)
         b.add("\n")
     b.add("\nThanks,\n")
-    if r.random() < 0.4:
-        sig = r.choice(V.STAFF_NON_DIR)
-        b.plant("staff_name_nondirectory", sig).add("\n")
+    if r.random() < 0.5:
+        b.plant("staff_name_directory" if sender in V.STAFF_DIR else "staff_name_header", sender).add("\n")
         if r.random() < 0.5:
             b.plant("phone", g.phone()).add("\n")
     if r.random() < 0.35:
-        _adversarial(g, b, r)
+        _adversarial(g, b, r, to)
     fields = {"body": b}
     atts = []
     if r.random() < 0.3:
         fb = Builder(fname="attachment_0")
         fb.add("Report_").plant("attachment_filename", g.pt_name()[1]).add("_")
         fb.plant("attachment_filename", g.referral()).add(".pdf")
-        # attachment-filename labels cover the embedded identifier values
         fields["attachment_0"] = fb
         atts.append("pdf")
         meta["has_ref"] = True
     labels = [l for bb in fields.values() for l in bb.labels]
     meta["conflict"] = meta["has_ref"] and meta["has_clin"]
     return {"id": f"msg-{i:05d}", "source": "email", "fields": {k: v.text for k, v in fields.items()},
-            "labels": labels, "meta": {**meta, "attachments": atts,
-                                       "header_from": staff_dir.lower().replace(" ", ".") + "@" + r.choice(V.TRUST_DOMAINS)}}
+            "labels": labels, "meta": {**meta, "attachments": atts, "header_people": people}}
 
 
-def _sentence(g: Gen, b: Builder, k: str, meta: dict) -> None:
+def _sentence(g: Gen, b: Builder, k: str, meta: dict, hdr: set | None = None) -> None:
     r = g.r
+    hdr = hdr or set()
     if k == "ref":
         b.add("Can you check ").plant("referral_no", g.referral()).add(" and sample ").plant("sample_no", g.sample())
         b.add(" against worksheet ").plant("worksheet_no", g.worksheet()).add("?")
@@ -227,7 +234,11 @@ def _sentence(g: Gen, b: Builder, k: str, meta: dict) -> None:
     elif k == "config":
         b.add("The ").plant("config_vocab", r.choice(V.CONFIG_VOCAB)).add(" config change goes live Monday.")
     elif k == "nonstaff":
-        b.add("Please ask ").plant("staff_name_nondirectory", r.choice(V.STAFF_NON_DIR)).add(" to look at it.")
+        who = r.choice(V.STAFF_NON_DIR)
+        b.add("Please ask ").plant("staff_name_header" if who in hdr else "staff_name_nondirectory", who).add(" to look at it.")
+    elif k == "stafftwice":
+        who = r.choice(V.STAFF_DIR)
+        b.plant("staff_name_directory", who).add(" will chase it. ").plant("staff_name_directory", who.split()[0]).add(" to confirm.")
     elif k == "pemail":
         _, _, full = g.pt_name()
         b.add("The family wrote from ").plant("patient_email", g.ext_email(full)).add(" yesterday.")
@@ -238,11 +249,11 @@ def _sentence(g: Gen, b: Builder, k: str, meta: dict) -> None:
         b.add(r.choice(V.BENIGN))
 
 
-def _adversarial(g: Gen, b: Builder, r: random.Random) -> None:  # noqa: D401
+def _adversarial(g: Gen, b: Builder, r: random.Random, to: str = "Callum Ridgeway") -> None:
     """Append adversarial variants as a trailing block."""
     b.add("\n--\n")
     kind = r.choice(["odd_group", "words", "newline", "near_miss", "lower_name", "initials",
-                     "nickname", "dob_nodyear", "bracket", "mrn_sep", "fullwidth"])
+                     "nickname", "dob_nodyear", "bracket", "mrn_sep", "fullwidth", "name_collision", "ambiguous_surname"])
     d = g.nhs()
     if kind == "odd_group":
         b.add("ref NHS ").plant("nhs_number", f"{d[:2]} {d[2:7]} {d[7:]}", kind)
@@ -271,10 +282,17 @@ def _adversarial(g: Gen, b: Builder, r: random.Random) -> None:  # noqa: D401
         v, _ = g.mrn()
         v = "XQA" + "-" + "".join(str(r.randint(0, 9)) for _ in range(7))
         b.add("hosp no ").plant("mrn", v, kind)
+    elif kind == "name_collision":
+        b.add("mum says ").plant("patient_name", to.split()[0], kind).add(" is unwell")
+    elif kind == "ambiguous_surname":
+        b.add("Hi ").plant("staff_name_ambiguous", "Ridgeway", kind).add(",")
     else:  # fullwidth digits
         fw = "".join(chr(ord("0") + int(c) + 0xFF10 - ord("0")) for c in d)
         b.add("NHS ").plant("nhs_number", fw, kind)
     b.add("\n")
+
+
+UNIQUE_SURNAMES = ["Fairweather", "Lindqvist", "Maddox", "Holloway", "Tallis"]
 
 
 def build_teams(g: Gen, i: int) -> dict:
@@ -293,8 +311,13 @@ def build_transcript(g: Gen, i: int) -> dict:
     b = Builder()
     meta = {"has_ref": False, "has_clin": False}
     for _ in range(r.randint(3, 7)):
-        if r.random() < 0.7:
+        x = r.random()
+        if x < 0.55:
             b.plant("staff_name_directory", r.choice(V.STAFF_DIR))
+        elif x < 0.70:
+            b.plant("staff_name_directory", r.choice(UNIQUE_SURNAMES), "bare_speaker")
+        elif x < 0.75:
+            b.plant("staff_name_ambiguous", "Ridgeway", "ambiguous_surname")
         else:
             b.plant("external_contact_name", g.ext_name())
         b.add(": ")
@@ -313,6 +336,16 @@ def generate(n: int, seed: int) -> list[dict]:
     return out
 
 
+def directory_markdown() -> str:
+    """A synthetic People-Directory in the vault's table format (Surname | Full name | Role | Org | Notes)."""
+    rows = ["---", "type: reference", "tier: 1", "---", "", "# People Directory", "",
+            "| Surname | Full name | Role | Organisation | Notes |", "|---|---|---|---|---|"]
+    for full in V.STAFF_DIR + V.DIRECTORY_EXTRA:
+        note = "two with this surname" if full.endswith("Ridgeway") else ""
+        rows.append(f"| {full.split()[-1]} | {full} | Synthetic role | NWGMS | {note} |")
+    return "\n".join(rows) + "\n"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=1200)
@@ -324,7 +357,7 @@ def main() -> None:
     with a.out.open("w", encoding="utf-8") as fh:
         for m in msgs:
             fh.write(json.dumps(m, ensure_ascii=False) + "\n")
-    (a.out.parent / "directory.txt").write_text("\n".join(V.STAFF_DIR) + "\n", encoding="utf-8")
+    (a.out.parent / "People-Directory.md").write_text(directory_markdown(), encoding="utf-8")
     print(f"wrote {len(msgs)} messages, {sum(len(m['labels']) for m in msgs)} labels -> {a.out}")
 
 
