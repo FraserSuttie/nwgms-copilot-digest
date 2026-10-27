@@ -230,3 +230,6 @@ real/
 *.xlsx
 .env
 .env.*
+
+# Stripper: generated synthetic corpus (reproducible from seed)
+stripper/corpus/out/
