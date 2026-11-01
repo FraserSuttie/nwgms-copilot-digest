@@ -1,4 +1,4 @@
-# stripper/ (content lane, build slices 1 to 3)
+# stripper/ (content lane, build slices 1 to 4)
 
 Local, deterministic stripper for work communications. Design lives in the NWGMS vault
 (`Projects/Comms-Intake-Design.md`); decision record: `docs/decisions/0002-content-lane-local-stripper.md`.
@@ -17,6 +17,9 @@ Synthetic data only. Nothing here reads real mail.
 | `quarantine.py` | Whole-message quarantine store in the local state dir; `list` and `purge` CLI, counts only |
 | `pipeline.py` | Eligibility, transform, residual scan, density, quarantine. `python stripper/pipeline.py [--ner]` prints a counts-only corpus report |
 | `density.py` | Density threshold sweep over the synthetic corpus (`--ner` for the real numbers) |
+| `mailfront.py` | Email front end: `nwgms-rawdrop/1` contract check, normaliser (HTML, history, signature, disclaimers, encodings), message record (ADR 0006) |
+| `runner.py` | Email batch runner: raw drop to per-thread append-only blocks plus an `_Intake` batch manifest; counts only; NER required |
+| `corpus/rawdrop.py` | Synthetic raw-drop generator and per-block scorer (counts only) |
 | `recall.py` | Per-category recall report, counts only (`--ner`, `--gate`) |
 
 Run from the repo root:
@@ -26,4 +29,11 @@ Run from the repo root:
     python stripper/recall.py --gate         # + name gate (directory + header rules)
     python stripper/recall.py --ner --gate   # + NER (pip install presidio-analyzer spacy; python -m spacy download en_core_web_lg)
 
-Not built yet: email front end, decode CLI.
+Synthetic email run in PowerShell (folders outside the repo; the state folder must also be outside OneDrive):
+
+    python stripper/corpus/rawdrop.py --dir $env:TEMP\rd
+    python stripper/runner.py --drop $env:TEMP\rd\drop --state $env:TEMP\rd-state --out $env:TEMP\rd-out `
+        --directory $env:TEMP\rd\directory.md --vocab $env:TEMP\rd\vocab.txt
+    python stripper/corpus/rawdrop.py --dir $env:TEMP\rd --score $env:TEMP\rd-out
+
+Not built yet: decode CLI.
