@@ -21,12 +21,12 @@ messages per thread and reports counts only. The Power Automate flow is built se
   `-- `, the Outlook signature div or "Sent from my"; in the last 12 non-empty lines a stand-alone sign-off keeps
   itself and one name line (B1). Encoding: BOM, CRLF, zero-width, soft hyphen, NFKC; cp1252 mojibake repaired only
   when the repair reduces the markers (C1). RE/FW prefixes are dropped from the subject; FW is flagged.
-- Message record: `header` (From/To/Cc lines; Trust-domain participants by display name, external participants by
-  address, which the core turns into CONTACT-nnnn), `message` (subject + blank line + body, one string per ADR
+- Message record: `header_from`, `header_to`, `header_cc` (one field each, no labels; Trust-domain participants
+  by display name, external participants by address, which the core turns into CONTACT-nnnn), `message` (subject + blank line + body, one string per ADR
   0004), `attachment_1..n` (non-inline only). `header_people` are From, To and Cc with "Surname, Forename (Org)"
   turned into "Forename Surname". Reply-To is shown only as none / same as sender / differs (n) (D1).
-- Shape check: after stripping, the header must still have its three lines and the message must still split at
-  the first blank line; otherwise the whole message is quarantined (`FRONT_SHAPE`). A front-end exception parks
+- Shape check: after stripping, each header field must still be one non-empty line and the message must still
+  split at the first blank line; otherwise the whole message is quarantined (`FRONT_SHAPE`). A front-end exception parks
   the raw object in quarantine (`FRONT_ERROR`).
 - Thread key: `THR-` + 8 consonants, keyed HMAC of the Graph conversation ID under its own derived label.
 - Message hash (dedup): keyed hash of the normalised fields + sent time to the second + conversation ID, so a
@@ -46,14 +46,21 @@ messages per thread and reports counts only. The Power Automate flow is built se
 - Vocabulary: `--vocab` and `--ignore` are read with `load_wordlist`; vocab goes to `Pipeline(vocab=)`, ignore
   words are combined with the review-state ignore list. `review.py list|triage --vocab --ignore` hide names those
   files already cover. The files stay the source of truth; nothing is imported into the state (G1).
-- Core fix found by this slice: the density check now allows only Trust-domain header participants. Before, an
-  external participant's display name in the body passed density when NER missed it.
+- Core fixes found by this slice: (1) the density check now allows only Trust-domain header participants; before,
+  an external participant's display name in the body passed density when NER missed it. (2) `ner.py` splits an NER
+  span that crosses a line break into one span per line (same characters covered, the break kept). spaCy joined a
+  name to the next line's first word ("Tallis" + "Cc"), which broke the header shape and quarantined 627 of 1,200
+  messages in the first NER-on run.
 
 ## Consequences
-- Synthetic raw drop (seed 20261027, 1,200 emails plus 36 duplicate files, NER off, container): 528 released,
-  672 quarantined (DENS_CAPS 620, ELIG_RESULT_ID 94), 36 duplicates skipped; 0 planted strip values, 0 name
-  fragments and 0 quoted-history plants in released blocks. NER-on figures are measured locally (Run 4).
-- With NER off, DENS_CAPS is mostly real names the NER layer would have caught; it is not a real-mail rate.
+- Synthetic raw drop (seed 20261027, 1,200 emails plus 36 duplicate files, NER on, en_core_web_lg, after both
+  fixes, container run): 1,060 released, 140 quarantined (11.7%; DENS_CAPS 53, ELIG_RESULT_ID 94), 36 duplicates
+  skipped, 0 torn blocks; 0 planted strip values, 0 planted name fragments and 0 quoted-history plants in released
+  blocks. To be confirmed on Fraser's laptop (Run 4b).
+- The Run 3 corpus report after the `ner.py` change (container, NER on): 1,058 released, 142 quarantined (11.8%),
+  12 released messages with a lowercase name fragment, 0 planted strip items: unchanged within one message.
+- 0 name fragments in the email run does not close the lowercase-name gap: the email corpus has a different mix
+  from the Run 3 corpus and is self-authored.
 - Title-case subjects and table header cells raise DENS_CAPS on real mail until the vocabulary is populated.
 - Forwarded content is dropped, not fetched; if the original is not in the mailbox it is lost (by design).
 - Exchange can start a new conversation when a subject is edited; subject matching stays a fallback, not built.

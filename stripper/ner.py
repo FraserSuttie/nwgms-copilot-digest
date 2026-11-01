@@ -46,4 +46,22 @@ def detect_ner(text: str) -> list[P.Hit]:
     if _engine is None:
         return []
     res = _engine.analyze(text=text, language="en", entities=list(_ENTITIES))
-    return [P.Hit(_ENTITIES[r.entity_type], "fail", r.start, r.end) for r in res if r.score >= 0.4]
+    return [P.Hit(_ENTITIES[r.entity_type], "fail", s, e) for r in res if r.score >= 0.4
+            for s, e in split_lines(text, r.start, r.end)]
+
+
+def split_lines(text: str, start: int, end: int) -> list[tuple[int, int]]:
+    """A person or place never crosses a line break, but spaCy sometimes joins a name to the next line's first word.
+    Split such a span into one span per line (whitespace trimmed): the same characters are covered, the break is kept."""
+    out, s = [], start
+    for i in range(start, end + 1):
+        if i == end or text[i] in "\r\n":
+            a, b = s, i
+            while a < b and text[a].isspace():
+                a += 1
+            while b > a and text[b - 1].isspace():
+                b -= 1
+            if b > a:
+                out.append((a, b))
+            s = i + 1
+    return out

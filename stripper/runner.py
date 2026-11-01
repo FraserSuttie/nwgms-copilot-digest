@@ -142,8 +142,7 @@ def _counts(c: Counter) -> str:
 
 
 def render_block(msg_hash: str, rec: M.MessageRecord, stripped: dict, counts: Counter) -> str:
-    h = stripped["header"].split("\n")
-    frm, to, cc = (x.split(": ", 1)[1] for x in h)
+    frm, to, cc = (stripped[k] for k in M.HEADER_FIELDS)
     subject, _, body = stripped["message"].partition("\n\n")
     atts = [stripped[k] for k in sorted((k for k in stripped if k.startswith("attachment_")),
                                         key=lambda k: int(k.split("_")[1]))]

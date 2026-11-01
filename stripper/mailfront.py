@@ -5,7 +5,7 @@ turns one raw-drop JSON object (written by the Power Automate flow, one file per
 core consumes, and drops whole regions (quoted history, signature, disclaimers, banners) without parsing them.
 
     rec = build(raw_dict)          # raises ContractError on a schema problem
-    rec.fields                     # {"header": ..., "message": subject + "\\n\\n" + body, "attachment_1": ...}
+    rec.fields                     # {"header_from", "header_to", "header_cc", "message": subject + blank line + body, "attachment_1", ...}
     rec.header_people              # [(display, address)] for From, To, Cc
 """
 
@@ -322,12 +322,10 @@ def build(raw: dict) -> MessageRecord:
     body, img_tags = normalise_body(use, flags)
     subject = normalise_subject(raw["subject"], flags)
     cc = raw.get("cc", [])
-    header = "\n".join([
-        "From: " + _render(raw["from"]),
-        "To: " + (", ".join(_render(p) for p in raw["to"]) or "none"),
-        "Cc: " + (", ".join(_render(p) for p in cc) or "none"),
-    ])
-    fields = {"header": header, "message": subject + "\n\n" + body}
+    fields = {"header_from": _render(raw["from"]),
+              "header_to": ", ".join(_render(p) for p in raw["to"]) or "none",
+              "header_cc": ", ".join(_render(p) for p in cc) or "none",
+              "message": subject + "\n\n" + body}
     inline = 0
     n = 0
     for a in raw["attachments"]:
@@ -356,12 +354,14 @@ def dedup_basis(rec: MessageRecord, content_hash: str) -> str:
     return "\x1d".join([content_hash, rec.sent_exact, rec.conversation_id.strip()])
 
 
+HEADER_FIELDS = ("header_from", "header_to", "header_cc")
+
+
 def split_check(stripped: dict) -> Counter:
-    """Shape check run on the stripped fields before release (fail closed): header has its three lines and the
-    message still splits into subject and body at the first blank line."""
+    """Shape check run on the stripped fields before release (fail closed): each header field is still one line and
+    the message still splits into subject and body at the first blank line."""
     bad = Counter()
-    h = stripped.get("header", "").split("\n")
-    if len(h) != 3 or not (h[0].startswith("From: ") and h[1].startswith("To: ") and h[2].startswith("Cc: ")):
+    if any(k not in stripped or "\n" in stripped[k] or not stripped[k].strip() for k in HEADER_FIELDS):
         bad["FRONT_SHAPE"] += 1
     if "\n\n" not in stripped.get("message", ""):
         bad["FRONT_SHAPE"] += 1

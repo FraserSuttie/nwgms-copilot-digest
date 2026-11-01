@@ -138,7 +138,7 @@ class Record(unittest.TestCase):
                         subject="RE: FW:  Panel   question",
                         attachments=[{"name": "CRF-2026-019 v2.pdf", "content_type": "application/pdf", "size": 10, "is_inline": False},
                                      {"name": "image001.png", "content_type": "image/png", "size": 5, "is_inline": True}]))
-        self.assertEqual(r.fields["header"], "From: Ada Fairweather\nTo: Callum Ridgeway\nCc: r.w@example.org")
+        self.assertEqual([r.fields[k] for k in M.HEADER_FIELDS], ["Ada Fairweather", "Callum Ridgeway", "r.w@example.org"])
         self.assertEqual(r.fields["message"].split("\n\n")[0], "Panel question")
         self.assertEqual(r.fields["attachment_1"], "CRF-2026-019 v2.pdf")
         self.assertNotIn("attachment_2", r.fields)
@@ -164,9 +164,10 @@ class Record(unittest.TestCase):
         self.assertEqual(M.display_name("Ada Fairweather [NWGMS]"), "Ada Fairweather")
 
     def test_split_check(self):
-        good = {"header": "From: a\nTo: b\nCc: none", "message": "s\n\nb"}
+        good = {"header_from": "a", "header_to": "b", "header_cc": "none", "message": "s\n\nb"}
         self.assertFalse(M.split_check(good))
-        for bad in ({**good, "message": "no split"}, {**good, "header": "From: a\nTo: b"}, {**good, "header": "[CLIN]\nTo: b\nCc: c"}):
+        for bad in ({**good, "message": "no split"}, {**good, "header_to": "b\nc"}, {**good, "header_cc": " "},
+                    {k: v for k, v in good.items() if k != "header_from"}):
             self.assertTrue(M.split_check(bad))
 
     def test_build_does_not_mutate(self):
@@ -174,6 +175,18 @@ class Record(unittest.TestCase):
         r1 = copy.deepcopy(r0)
         M.build(r0)
         self.assertEqual(r0, r1)
+
+
+
+class NerSpans(unittest.TestCase):
+    def test_span_across_line_break_is_split_not_dropped(self):
+        import ner as N
+        t = "To: Ewan Tallis\nCc: none\n\nZebedee\n Quolworth"
+        a = t.index("Ewan")
+        self.assertEqual([t[s:e] for s, e in N.split_lines(t, a, t.index(":", a))], ["Ewan Tallis", "Cc"])
+        z = t.index("Zebedee")
+        self.assertEqual([t[s:e] for s, e in N.split_lines(t, z, len(t))], ["Zebedee", "Quolworth"])
+        self.assertEqual(N.split_lines(t, 0, 2), [(0, 2)])
 
 
 if __name__ == "__main__":
