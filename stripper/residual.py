@@ -94,11 +94,11 @@ def allowed_words(people: G.People, ignore=frozenset(), vocab=frozenset(), heade
     return frozenset(words)
 
 
-def unknown_caps(text: str, allowed: frozenset) -> int:
+def unknown_cap_words(text: str, allowed: frozenset) -> list[str]:
     """Capitalised words (3+ letters) that are not allowed. A sentence-initial word is skipped only when
     it is an ordinary opener and is followed by lower-case prose, so a bare name alone on a line still counts."""
     t = blank_approved(text)
-    n = 0
+    found = []
     for m in _CAP.finditer(t):
         w = m.group(0)
         lw = w.lower()
@@ -106,12 +106,14 @@ def unknown_caps(text: str, allowed: frozenset) -> int:
             continue
         pre = t[:m.start()].rstrip(" \t")
         initial = not pre or pre[-1] in ".!?:\n\r"
-        if initial:
-            nxt = t[m.end():m.end() + 24].lstrip(" \t")
-            if nxt[:1].islower():
-                continue            # ordinary sentence start: "Please check ..."
-        n += 1
-    return n
+        if initial and t[m.end():m.end() + 24].lstrip(" \t")[:1].islower():
+            continue            # ordinary sentence start: "Please check ..."
+        found.append(w)
+    return found
+
+
+def unknown_caps(text: str, allowed: frozenset) -> int:
+    return len(unknown_cap_words(text, allowed))
 
 
 def density(text: str, allowed: frozenset, limits: Limits = Limits()) -> Counter:

@@ -25,6 +25,7 @@ import hmac
 import json
 import os
 import sys
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,7 +119,14 @@ def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(data)
-    os.replace(tmp, path)
+    for attempt in range(8):          # Windows can briefly lock the target (antivirus, indexer): retry, then fail
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def normalise_value(value: str) -> str:

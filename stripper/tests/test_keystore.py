@@ -145,5 +145,30 @@ class DpapiSmoke(unittest.TestCase):
             self.assertEqual(K.KeyStore(Path(d) / "ks", p).resolve(t), "R26AB12")
 
 
+class AtomicWriteRetry(unittest.TestCase):
+    def test_transient_permission_error_is_retried(self):
+        import os
+        from unittest import mock
+        real = os.replace
+        calls = {"n": 0}
+
+        def flaky(a, b):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise PermissionError("locked")
+            return real(a, b)
+
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(K.os, "replace", flaky):
+            K._atomic_write(Path(td) / "f.bin", b"x")
+            self.assertEqual((Path(td) / "f.bin").read_bytes(), b"x")
+        self.assertEqual(calls["n"], 3)
+
+    def test_persistent_permission_error_still_raises(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(K.os, "replace", side_effect=PermissionError("locked")):
+            with self.assertRaises(PermissionError):
+                K._atomic_write(Path(td) / "f.bin", b"x")
+
+
 if __name__ == "__main__":
     unittest.main()
