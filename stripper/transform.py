@@ -38,7 +38,7 @@ import keystore as K  # noqa: E402
 import namegate as G  # noqa: E402
 import ner as N  # noqa: E402
 
-STRIPPER_VERSION = "0.2.0-transforms"
+STRIPPER_VERSION = "0.3.0-residual"
 
 FIXED = {
     "NHS_NUMBER": "[PT-NHS]", "TEN_DIGITS": "[PT-NUM]", "DIGITS_AS_WORDS": "[PT-NUM]", "PATIENT_NUMBER": "[PT-NUM]",
@@ -101,6 +101,7 @@ class TextResult:
     left: Counter = field(default_factory=Counter)    # hits with no treatment, by detector code
     has_id: bool = False                              # a REF/SMP/WS/QC/CASE number was present (before any drop)
     has_result_style: bool = False                    # result-style clinical wording was present
+    emitted: set = field(default_factory=set)         # every placeholder/token this call wrote (strings, no source values)
 
 
 @dataclass
@@ -112,6 +113,7 @@ class MessageResult:
     has_id: bool
     has_result_style: bool
     msg_hash: str
+    emitted: frozenset = frozenset()
 
 
 class Transformer:
@@ -168,7 +170,9 @@ class Transformer:
         out, pos = [], 0
         for it in items:
             out.append(text[pos:it.s])
-            out.append(self._realise(it))
+            tok = self._realise(it)
+            out.append(tok)
+            res.emitted.add(tok)
             res.counts[it.label] += 1
             pos = it.e
         out.append(text[pos:])
@@ -255,26 +259,32 @@ class Transformer:
         label = f', "{" ".join(words)}"' if words else ""
         return f"ATT-{n} ({ext}{label})"
 
+    def hash_fields(self, fields: dict) -> str:
+        return self.store.message_hash("\x1f".join(f"{k}\x1e{v}" for k, v in sorted(fields.items())))
+
     def message(self, fields: dict, header_people=(), commit: bool = True, audit: bool = True) -> MessageResult:
-        msg_hash = self.store.message_hash("\x1f".join(f"{k}\x1e{v}" for k, v in sorted(fields.items())))
+        msg_hash = self.hash_fields(fields)
         out, counts, drops, left = {}, Counter(), Counter(), Counter()
         has_id = has_rs = False
+        emitted: set = set()
         att = 0
         for name, raw in fields.items():
             if name.startswith("attachment_"):
                 att += 1
                 out[name] = self.attachment(raw, msg_hash, att)
+                emitted.add(out[name])
                 counts["ATT"] += 1
                 continue
             r = self.text(raw, header_people)
             out[name] = r.text
             counts.update(r.counts); drops.update(r.drops); left.update(r.left)
             has_id |= r.has_id; has_rs |= r.has_result_style
+            emitted |= r.emitted
         if audit:
             self.store.audit(msg_hash, "stripped", counts, STRIPPER_VERSION)
         if commit:
             self.store.save()
-        return MessageResult(out, counts, drops, left, has_id, has_rs, msg_hash)
+        return MessageResult(out, counts, drops, left, has_id, has_rs, msg_hash, frozenset(emitted))
 
 
 # ---- corpus run (synthetic only): counts, leaks, residual preview ---------------------------------
