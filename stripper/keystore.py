@@ -175,6 +175,13 @@ class KeyStore:
         key = hmac.new(self._master, b"nwgms-stripper/v1/message", hashlib.sha256).digest()
         return hmac.new(key, text.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
 
+    def thread_key(self, conversation_id: str) -> str:
+        """THR- plus 8 consonants: keyed hash of the Graph conversation ID (design section 7). Stable for one master."""
+        if not conversation_id.strip():
+            raise ValueError("a thread key needs a conversation ID")
+        key = hmac.new(self._master, b"nwgms-stripper/v1/thread", hashlib.sha256).digest()
+        return "THR-" + _encode(hmac.new(key, conversation_id.strip().encode("utf-8"), hashlib.sha256).digest(), START_LEN)
+
     # -- REF / SMP / WS / QC / CASE
     def token(self, category: str, value: str, year: int) -> str:
         """Deterministic token for an identifier. Collisions get a longer code, recorded in the table."""

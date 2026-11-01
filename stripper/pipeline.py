@@ -1,6 +1,6 @@
 """Per-message pipeline: eligibility, transform, residual scan, density check, quarantine (ADR 0005).
 
-    outcome = Pipeline(transformer, quarantine).process(fields, header_people)
+    outcome = Pipeline(transformer, quarantine).process(fields, header_people[, check])
 
 `outcome.status` is "ok" (then `outcome.fields` is the stripped message) or "quarantined" (then
 `outcome.fields` is None: there is NEVER partial output). Reason codes are counts only.
@@ -52,7 +52,8 @@ class Pipeline:
             raise RuntimeError("NER was requested but the layer is not active; refusing to run without it")
         self.tr, self.q, self.limits, self.vocab = tr, quarantine, limits, frozenset(vocab)
 
-    def process(self, fields: dict, header_people=()) -> Outcome:
+    def process(self, fields: dict, header_people=(), check=None) -> Outcome:
+        """`check(stripped_fields) -> Counter` is an optional front-end shape check; any reason it returns quarantines."""
         tr, lim = self.tr, self.limits
         msg_hash = tr.hash_fields(fields)
         reasons: Counter = Counter()
@@ -75,6 +76,8 @@ class Pipeline:
                     else:
                         reasons.update(R.scan(text, r.emitted, people, tr.ignore, tr.use_ner, allowed))
                         reasons.update(R.density(text, allowed, lim))
+                if not reasons and check is not None:
+                    reasons.update(check(r.fields))
                 if not reasons:
                     out_fields = r.fields
         except Exception as exc:  # noqa: BLE001 - fail closed on anything unexpected

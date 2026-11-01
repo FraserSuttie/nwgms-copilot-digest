@@ -87,14 +87,16 @@ def scan(text: str, emitted, people: G.People, ignore=frozenset(), use_ner: bool
 
 def allowed_words(people: G.People, ignore=frozenset(), vocab=frozenset(), header_people=()) -> frozenset:
     """Lower-case words that never count as 'unknown capitalised': staff tokens, config vocabulary,
-    ignore-list terms (review queue), header participants, days and months."""
+    ignore-list terms (review queue), Trust-domain header participants, days and months."""
     words = set(DAYS_MONTHS) | {w.lower() for w in vocab}
     for tok in people.tokens:
         words.update(re.findall(r"[a-z0-9']+", tok))
     for n in ignore:
         words.update(re.findall(r"[a-z0-9']+", n))
-    for display, _addr in header_people:
-        words.update(re.findall(r"[a-z0-9']+", display.lower()))
+    for display, addr in header_people:   # Trust-domain participants only: an external display name is not allowed
+        dom = addr.rsplit("@", 1)[-1].lower()
+        if any(dom == d or dom.endswith("." + d) for d in G.P.ALLOWED_EMAIL_DOMAINS):
+            words.update(re.findall(r"[a-z0-9']+", display.lower()))
     return frozenset(words)
 
 
