@@ -56,8 +56,10 @@ def scan_attachment(line: str, emitted) -> Counter:
     return r
 
 
-def scan(text: str, emitted, people: G.People, ignore=frozenset(), use_ner: bool = False) -> Counter:
-    """Residual scan over one output field."""
+def scan(text: str, emitted, people: G.People, ignore=frozenset(), use_ner: bool = False,
+         allowed: frozenset = frozenset()) -> Counter:
+    """Residual scan over one output field. `allowed` (lower-case words, as in density) exempts NER place hits on
+    known domain words such as a leftover "QC"."""
     r = Counter()
     for m in APPROVED_RE.finditer(text):
         if m.group(0) not in emitted:
@@ -69,6 +71,8 @@ def scan(text: str, emitted, people: G.People, ignore=frozenset(), use_ner: bool
         for h in N.detect_ner(norm):
             if h.code == "NER_PERSON":
                 spans.append((h.start, h.end))
+            elif norm[h.start:h.end].lower() in allowed:
+                continue
             elif not any(h.start < x.end and x.start < h.end for x in hits):
                 hits.append(h)
     for h in hits:

@@ -73,7 +73,7 @@ class Pipeline:
                     if name.startswith("attachment_"):
                         reasons.update(R.scan_attachment(text, r.emitted))
                     else:
-                        reasons.update(R.scan(text, r.emitted, people, tr.ignore, tr.use_ner))
+                        reasons.update(R.scan(text, r.emitted, people, tr.ignore, tr.use_ner, allowed))
                         reasons.update(R.density(text, allowed, lim))
                 if not reasons:
                     out_fields = r.fields
@@ -116,7 +116,9 @@ def name_fragments_surviving(msg: dict, out_fields: dict) -> Counter:
 
 def corpus_vocab() -> frozenset:
     import vocab as V
-    words = set()
+    # Stand-in for Fraser's local vocabulary file / review-queue ignore list: system and domain words that are
+    # not names. The first corpus run showed these four words caused every clean-message density quarantine.
+    words = {"Epic", "Referring", "Test", "QC"}
     for term in V.CONFIG_VOCAB:
         words.update(re.findall(r"[A-Za-z0-9']+", term))
     return frozenset(words)

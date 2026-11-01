@@ -77,6 +77,12 @@ class ResidualScan(Base):
         # known-token scan: a bare staff surname mid-sentence is a name decision
         self.assertTrue(self.scan("We spoke to Ridgeway about it.")["NAME_SURVIVES"] >= 1)
 
+    def test_ner_place_hit_on_an_allowed_word_is_exempt(self):
+        hit = [R.D.Hit("NER_LOCATION", "fail", 0, 2)]
+        with mock.patch.object(N, "detect_ner", return_value=hit):
+            self.assertEqual(R.scan("QC failed again", set(), DIRECTORY, use_ner=True), Counter({"HIT_NER_LOCATION": 1}))
+            self.assertEqual(R.scan("QC failed again", set(), DIRECTORY, use_ner=True, allowed=frozenset({"qc"})), Counter())
+
     def test_attachment_line_must_match_exactly_and_be_emitted(self):
         line = 'ATT-1 (pdf, "report")'
         self.assertEqual(R.scan_attachment(line, {line}), Counter())
