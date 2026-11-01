@@ -101,7 +101,8 @@ def detect(text: str) -> tuple[str, list[Hit]]:
     for m in _URL.finditer(raw):
         pm = _URL_PERSONAL.search(m.group(0))
         if pm:
-            _claim(hits, Hit("URL_PERSONAL", "fail", m.start() + pm.start(1), m.start() + pm.end(1)))
+            end = m.start() + len(m.group(0).rstrip(".,;:!?"))  # whole URL, minus trailing sentence punctuation
+            _claim(hits, Hit("URL_PERSONAL", "fail", m.start(), end))
         else:
             host = re.sub(r"^https?://", "", m.group(0), flags=re.I).split("/")[0].lower()
             if not any(host == d or host.endswith("." + d) for d in P.ALLOWED_EMAIL_DOMAINS):

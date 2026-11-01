@@ -15,7 +15,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "corpus"))
 import detectors as D  # noqa: E402
+import keystore as K  # noqa: E402
 import namegate as G  # noqa: E402
+import transform as T  # noqa: E402
+import tempfile  # noqa: E402
+import unicodedata  # noqa: E402
 import generate as C  # noqa: E402
 import ner as N  # noqa: E402
 
@@ -60,10 +64,25 @@ def evaluate(msgs, use_ner: bool, use_gate: bool = False):
     conflicts = 0
     extra = {"gate_reasons": Counter(), "gate_leaks": 0, "review": Counter()}
     base_people = G.parse_directory(C.directory_markdown())
+    # Attachment filenames are scored through the transform path (allowlist label), not by detection (ADR 0005).
+    tmp = tempfile.TemporaryDirectory()
+    att_tr = T.Transformer(K.KeyStore(Path(tmp.name) / "ks", K.TestOnlyProtector()), base_people)
     for m in msgs:
         sources[m["source"]] += 1
         conflicts += bool(m["meta"].get("conflict"))
         for fname, raw in m["fields"].items():
+            if fname.startswith("attachment_"):
+                out = unicodedata.normalize("NFKC", att_tr.attachment(raw, "recall", 1))
+                for l in (l for l in m["labels"] if l["field"] == fname):
+                    planted = unicodedata.normalize("NFKC", raw[l["start"]:l["end"]])
+                    key = "missed" if planted.strip() and planted in out else "full"
+                    per[l["category"]]["planted"] += 1
+                    per[l["category"]][key] += 1
+                    per[l["category"]]["correct"] += key == "full"
+                    if l["adversarial"]:
+                        adv[l["kind"]]["planted"] += 1
+                        adv[l["kind"]][key] += 1
+                continue
             text, hits = D.detect(raw)
             if use_ner:
                 hits = sorted(hits + [h for h in N.detect_ner(text)
@@ -108,7 +127,7 @@ def report(msgs, use_ner: bool, use_gate: bool = False) -> str:
     per, adv, unl, src, conflicts, extra = evaluate(msgs, use_ner, use_gate)
     out = [f"messages={len(msgs)} sources={dict(src)} ref+clinical_conflict_messages={conflicts}",
            f"NER layer: {N.STATUS if use_ner else 'off (deterministic only)'}; name gate: {'on' if use_gate else 'off'}", "",
-           "STRIP categories (full = every character of the planted item covered)",
+           "STRIP categories (full = every character of the planted item covered; attachment_filename is scored through the transform path)",
            f"{'category':28}{'planted':>8}{'full':>7}{'partial':>9}{'missed':>8}{'right-code':>12}{'recall%':>9}"]
     for cat in C.CATEGORIES_STRIP:
         c = per.get(cat, Counter())
