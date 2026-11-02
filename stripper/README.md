@@ -1,4 +1,4 @@
-# stripper/ (content lane, build slices 1 to 5)
+# stripper/ (content lane, build slices 1 to 6)
 
 Local, deterministic stripper for work communications. Design lives in the NWGMS vault
 (`Projects/Comms-Intake-Design.md`); decision record: `docs/decisions/0002-content-lane-local-stripper.md`.
@@ -13,7 +13,7 @@ Synthetic data only. Nothing here reads real mail.
 | `review.py` | Local review-queue CLI for unknown names (run by Fraser only; state outside the repo and OneDrive) |
 | `transform.py` | Transform engine: placeholders, keyed REF/SMP/WS/QC/CASE tokens, CONTACT/ATT, `[NAME-n]`, `[CLIN]` escalations (ADR 0004). `python stripper/transform.py` prints a counts-only corpus report |
 | `keystore.py` | Local key store (DPAPI via ctypes), decode tables, keyed message hash, audit log. State lives in `%LOCALAPPDATA%\nwgms-stripper`, never in the repo or OneDrive |
-| `residual.py` | Residual scan (fail-closed, emitted-token check) and density check; `Limits` holds the thresholds (ADR 0005) |
+| `residual.py` | Residual scan (fail-closed, emitted-token check), density check and cue check (`CUE_NAME`: unrecognised word after a patient cue, ADR 0008); `Limits` holds the thresholds (ADR 0005) |
 | `quarantine.py` | Whole-message quarantine store in the local state dir; `list` and `purge` CLI, counts only |
 | `pipeline.py` | Eligibility, transform, residual scan, density, quarantine. `python stripper/pipeline.py [--ner]` prints a counts-only corpus report |
 | `density.py` | Density threshold sweep over the synthetic corpus (`--ner` for the real numbers) |
