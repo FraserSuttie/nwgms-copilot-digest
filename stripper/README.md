@@ -1,4 +1,4 @@
-# stripper/ (content lane, build slices 1 to 4)
+# stripper/ (content lane, build slices 1 to 5)
 
 Local, deterministic stripper for work communications. Design lives in the NWGMS vault
 (`Projects/Comms-Intake-Design.md`); decision record: `docs/decisions/0002-content-lane-local-stripper.md`.
@@ -19,6 +19,7 @@ Synthetic data only. Nothing here reads real mail.
 | `density.py` | Density threshold sweep over the synthetic corpus (`--ner` for the real numbers) |
 | `mailfront.py` | Email front end: `nwgms-rawdrop/1` contract check, normaliser (HTML, history, signature, disclaimers, encodings), message record (ADR 0006) |
 | `runner.py` | Email batch runner: raw drop to per-thread append-only blocks plus an `_Intake` batch manifest; counts only; NER required |
+| `decode.py` | Local decode CLI (run by Fraser only): tokens or `--thread` lookup table, terminal only, audit line, never message text (ADR 0007) |
 | `corpus/rawdrop.py` | Synthetic raw-drop generator and per-block scorer (counts only) |
 | `recall.py` | Per-category recall report, counts only (`--ner`, `--gate`) |
 
@@ -36,4 +37,7 @@ Synthetic email run in PowerShell (folders outside the repo; the state folder mu
         --directory $env:TEMP\rd\directory.md --vocab $env:TEMP\rd\vocab.txt
     python stripper/corpus/rawdrop.py --dir $env:TEMP\rd --score $env:TEMP\rd-out
 
-Not built yet: decode CLI.
+Decode (PowerShell, in a terminal; redirected output is refused):
+
+    python stripper/decode.py REF-XXXXXXXX CONTACT-0001 ATT-1@<12 hex from the block heading>
+    python stripper/decode.py --thread <out>\Comms\_Messages\THR-XXXXXXXX.md
