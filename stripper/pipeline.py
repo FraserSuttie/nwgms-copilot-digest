@@ -76,6 +76,7 @@ class Pipeline:
                     else:
                         reasons.update(R.scan(text, r.emitted, people, tr.ignore, tr.use_ner, allowed))
                         reasons.update(R.density(text, allowed, lim))
+                        reasons.update(R.cue_check(text, allowed))
                 if not reasons and check is not None:
                     reasons.update(check(r.fields))
                 if not reasons:

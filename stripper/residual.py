@@ -137,6 +137,68 @@ def density(text: str, allowed: frozenset, limits: Limits = Limits()) -> Counter
     return r
 
 
+# ---- cue check (ADR 0008): a word straight after a patient cue must be recognised ---------------------------------
+CUES = frozenset("patient pt mr mrs ms miss mx baby proband".split())
+# General English words that commonly follow a cue. Written from general usage, not from the corpus. Anything else
+# within the window (staff, config vocabulary and ignore-list words aside) quarantines the whole message (CUE_NAME).
+CUE_FOLLOW = frozenset("""a an the this that these those his her their its our your my one two both each every all any some
+no not and or but nor so if as at by for from in into of on onto to with without about after before since until
+is are was were be been being has have had having do does did will would can could should shall may might must
+who whom whose which what when where why how here there then now also still already just only again ever never
+yet too very more most less least well back up down out off over under same other another such own
+seen saw see sees seeing told says said say called calls rang rung came come comes went go goes going gone
+seems seemed appears looked looks needs needed wants wanted asked asks gave given got gets made make makes
+isn't wasn't hasn't hadn't doesn't didn't won't can't couldn't wouldn't
+sample samples referral referrals record records details detail notes note file files list name names number
+numbers id identifier results result report reports request requests test tests testing tested form forms data
+consent consents letter letters information info query queries case cases episode episodes visit visits
+appointment appointments clinic clinics ward wards team teams care family families group groups cohort
+feedback survey surveys safety pathway pathways portal journey experience experiences records
+level levels list lists side group groups
+admin administration access transport parking leaflet leaflets
+due booked received pending waiting awaiting arrived attended discharged admitted transferred referred
+registered logged booked cancelled moved updated added removed linked merged unlinked processed
+""".split())
+_CUE_WORD = re.compile(r"[A-Za-z][A-Za-z'\u2019-]*|\[[A-Z0-9-]+\]|\n|[^\sA-Za-z]")
+_CUE_STOP = frozenset(".!?;:\n()\"")
+CUE_WINDOW = 2
+_CUE_ABBR = frozenset("pt mr mrs ms mx".split())
+
+
+def cue_check(text: str, allowed: frozenset, window: int = CUE_WINDOW) -> Counter:
+    """CUE_NAME when a word in the `window` words after a cue is not recognised. Fail-closed. Counts only.
+
+    Recognised: approved tokens and placeholders, words with digits, CUE_FOLLOW, `allowed` (staff tokens, config
+    vocabulary, ignore list, Trust-domain header names, days and months). The window stops at sentence
+    punctuation, a bracket or a newline (a colon or dash straight
+    after the cue is a label and is skipped). Catches lower-case names after a cue ("seen pt jane doe"); it does
+    NOT catch a name with no cue next to it."""
+    r = Counter()
+    toks = [m.group(0) for m in _CUE_WORD.finditer(APPROVED_RE.sub(" [TOKEN] ", text))]
+    for i, t in enumerate(toks):
+        if t.lower().rstrip(".") not in CUES:
+            continue
+        j, seen = i + 1, 0
+        if j < len(toks) and toks[j] == "." and t.lower() in _CUE_ABBR:   # "pt." / "Mr.": abbreviation, not a sentence end
+            j += 1
+        if j < len(toks) and toks[j] in (":", "-"):    # label form: "Patient: ..." / "pt - ..."
+            j += 1
+        while j < len(toks) and seen < window:
+            w = toks[j]
+            if w in _CUE_STOP or (len(w) == 1 and not w.isalpha()):
+                break
+            if w.startswith("["):
+                break                                  # a placeholder or token ends the window: already treated
+            base = w.lower().replace("\u2019", "'")
+            base = base[:-2] if base.endswith("'s") else base
+            if not (base in CUE_FOLLOW or base in allowed or all(p in allowed or p in CUE_FOLLOW for p in base.split("-"))):
+                r["CUE_NAME"] += 1
+                break
+            seen += 1
+            j += 1
+    return r
+
+
 def load_wordlist(path) -> frozenset:
     """Config vocabulary from a local text file, one term per line (test, panel and gene names from the NGTD
     reference). The file lives outside the repo; the pipeline only ever lower-cases and splits it into words."""

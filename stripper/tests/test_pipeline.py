@@ -266,7 +266,7 @@ class CorpusThroughPipeline(unittest.TestCase):
         self.assertEqual(dict(self.stats["ok_leaks"]), {})
 
     def test_quarantine_reasons_are_known_codes_and_counts(self):
-        known = {"DENS_CAPS", "DENS_DIGITS", "DENS_CLIN", "ELIG_RESULT_ID", "ELIG_SIZE"}
+        known = {"DENS_CAPS", "DENS_DIGITS", "DENS_CLIN", "ELIG_RESULT_ID", "ELIG_SIZE", "CUE_NAME"}
         self.assertTrue(set(self.stats["reasons"]) <= known, set(self.stats["reasons"]) - known)
         self.assertTrue(all(isinstance(v, int) for v in self.stats["reasons"].values()))
 
