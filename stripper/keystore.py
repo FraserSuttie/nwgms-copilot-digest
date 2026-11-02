@@ -158,7 +158,8 @@ class KeyStore:
             self._master = os.urandom(32)
             _atomic_write(mpath, protector.protect(self._master))
         tpath = self.dir / self.TABLES
-        self.t = {"v": 1, "codes": {c: {} for c in CODE_PREFIXES}, "contacts": {"next": 1, "ids": {}}, "att": {}}
+        self.t = {"v": 1, "codes": {c: {} for c in CODE_PREFIXES}, "contacts": {"next": 1, "ids": {}}, "att": {},
+                  "blocks": {}}
         if tpath.exists():
             loaded = json.loads(protector.unprotect(tpath.read_bytes()).decode("utf-8"))
             for k, v in loaded.items():
@@ -227,7 +228,24 @@ class KeyStore:
         self.t["att"].setdefault(msg_hash, {})[str(n)] = filename
         self.dirty = True
 
-    # -- local-only resolution (future decode CLI; tests)
+    def link_block(self, block_hash: str, field_hash: str) -> None:
+        """Released block (runner dedup hash) -> field hash that keys its ATT originals (ADR 0007, B1)."""
+        if self.t["blocks"].get(block_hash) != field_hash:
+            self.t["blocks"][block_hash] = field_hash
+            self.dirty = True
+
+    def resolve_attachment(self, block_prefix: str, n: int) -> tuple[str, str | None]:
+        """('ok', filename) | ('unknown', None) | ('ambiguous', None). Released blocks only; prefix >= 12 hex."""
+        prefix = block_prefix.lower()
+        hits = [h for h in self.t["blocks"] if h.startswith(prefix)]
+        if len(hits) > 1:
+            return "ambiguous", None
+        if not hits:
+            return "unknown", None
+        name = self.t["att"].get(self.t["blocks"][hits[0]], {}).get(str(int(n)))
+        return ("ok", name) if name else ("unknown", None)
+
+    # -- local-only resolution (decode CLI; tests)
     def resolve(self, token: str) -> str | None:
         prefix, _, rest = token.partition("-")
         if prefix in CODE_PREFIXES:
@@ -247,6 +265,14 @@ class KeyStore:
         """Append one line: keyed message hash, decision, counts by category, version. No content."""
         line = {"ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "msg": msg_hash,
                 "decision": decision, "counts": dict(sorted(counts.items())), "version": version}
+        self.dir.mkdir(parents=True, exist_ok=True)
+        with open(self.dir / self.AUDIT, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(line, sort_keys=True) + "\n")
+
+    def audit_decode(self, mode: str, tokens: list, counts: Counter, refused: int, version: str) -> None:
+        """One line per decode run: mode, tokens asked for (no values), counts resolved by prefix, refused count."""
+        line = {"ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "event": "decode", "mode": mode,
+                "tokens": list(tokens), "counts": dict(sorted(counts.items())), "refused": refused, "version": version}
         self.dir.mkdir(parents=True, exist_ok=True)
         with open(self.dir / self.AUDIT, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(line, sort_keys=True) + "\n")

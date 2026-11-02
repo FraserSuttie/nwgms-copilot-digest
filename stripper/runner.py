@@ -253,6 +253,7 @@ def run(drop, state, out, directory_md: str, vocab=frozenset(), ignore_words=fro
                 with open(path, "x", encoding="utf-8", newline="\n") as fh:
                     fh.write(thread_header(thread, now.strftime("%Y-%m-%d")))
                 new_threads.add(thread)
+            store.link_block(h, o.msg_hash)       # ATT originals are keyed by field hash; blocks show h (ADR 0007)
             existing = path.read_text(encoding="utf-8")
             if f"<!-- /block:{h} -->" in existing:
                 rep.already_written += 1          # crash between append and seen: do not write twice
