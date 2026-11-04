@@ -175,7 +175,11 @@ def caps_profile(text: str, allowed: frozenset, part: str | None = None) -> Coun
         line = t[ls:le]
         toks = [(m.start() + ls, m.group(0)) for m in _TOKEN.finditer(line)]
         caps = [bool(_TITLE_TOK.match(w)) for _, w in toks]
-        i = next(k for k, (pos, _) in enumerate(toks) if pos == h.start)
+        # the token holding the hit: a word after an apostrophe ("O'Xxxx") sits inside a longer token
+        i = next((k for k, (pos, w) in enumerate(toks) if pos <= h.start < pos + len(w)), None)
+        if i is None:
+            c["isolated"] += 1
+            continue
         a = b = i
         while a > 0 and caps[a - 1] and t[toks[a - 1][0] + len(toks[a - 1][1]):toks[a][0]] == " ":
             a -= 1

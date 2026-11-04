@@ -150,6 +150,23 @@ class Scanner(unittest.TestCase):
         p = R.caps_profile("Intro\n\nZorblax\n\nmore", NONE)
         self.assertEqual((p["alone_on_line"], p["initial"]), (2, 2))      # "Intro" and "Zorblax" are both bare lines
 
+    def test_apostrophe_words_do_not_crash_the_profile(self):
+        # Regression: a capital after an apostrophe sits inside a longer token (found on the laptop, 4 Nov 2026)
+        for t in ["He said O'Zorblax was late.", "the l\u2019Quendle feed", "a x\u2019Vrimble b", "O'Zorblax"]:
+            self.assertEqual(R.caps_profile(t, NONE)["total"], R.unknown_caps(t, NONE), t)
+
+    def test_profile_never_raises_and_matches_the_count(self):
+        import random
+        rnd = random.Random(1)
+        alpha = list("abcXYZQ '\u2019-[]()\n\t.,:;0123456789_\u00e9\u00c9") + ["Zor", "blax", "Aa", "NHS", "Mc", "[NAME-1]"]
+        for _ in range(5000):
+            t = "".join(rnd.choice(alpha) for _ in range(rnd.randint(1, 40)))
+            p = R.caps_profile(t, NONE)
+            self.assertEqual(p["total"], R.unknown_caps(t, NONE), t)
+            self.assertEqual(p["isolated"] + p["run2"] + p["run3plus"], p["total"], t)
+            for part in ("subject", "body"):
+                R.caps_profile(t, NONE, part)
+
     def test_parts_sum_to_whole(self):
         t = "Weekly Zorblax Review\n\nThe Quendle feed and Vrimble."
         whole = R.caps_profile(t, NONE)["total"]
