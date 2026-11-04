@@ -1,4 +1,4 @@
-# stripper/ (content lane, build slices 1 to 6)
+# stripper/ (content lane, build slices 1 to 8)
 
 Local, deterministic stripper for work communications. Design lives in the NWGMS vault
 (`Projects/Comms-Intake-Design.md`); decision record: `docs/decisions/0002-content-lane-local-stripper.md`.
@@ -18,7 +18,10 @@ Synthetic data only. Nothing here reads real mail.
 | `pipeline.py` | Eligibility, transform, residual scan, density, quarantine. `python stripper/pipeline.py [--ner]` prints a counts-only corpus report |
 | `density.py` | Density threshold sweep over the synthetic corpus (`--ner` for the real numbers) |
 | `mailfront.py` | Email front end: `nwgms-rawdrop/1` contract check, normaliser (HTML, history, signature, disclaimers, encodings), message record (ADR 0006) |
-| `runner.py` | Email batch runner: raw drop to per-thread append-only blocks plus an `_Intake` batch manifest; counts only; NER required |
+| `runner.py` | Email batch runner: raw drop to per-thread append-only blocks plus an `_Intake` batch manifest; counts only; NER required; `--caps-limit N` (default 1) |
+| `capsscan.py` | Read-only scan of a raw drop through `Pipeline.evaluate` for the caps tools; keeps unknown capitalised words in memory only (ADR 0010) |
+| `capsdiag.py` | Count-only DENS_CAPS diagnostic: outcome groups, histogram, release curve by limit, shape and section splits, vocabulary coverage. Prints no word, writes no file |
+| `capsvocab.py` | Local vocabulary builder (Fraser only, terminal only): ranked words, flags, allow one at a time, appends to a local `--vocab` file; `--list` writes nothing |
 | `decode.py` | Local decode CLI (run by Fraser only): tokens or `--thread` lookup table, terminal only, audit line, never message text (ADR 0007) |
 | `corpus/rawdrop.py` | Synthetic raw-drop generator and per-block scorer (counts only) |
 | `recall.py` | Per-category recall report, counts only (`--ner`, `--gate`) |
@@ -41,3 +44,9 @@ Decode (PowerShell, in a terminal; redirected output is refused):
 
     python stripper/decode.py REF-XXXXXXXX CONTACT-0001 ATT-1@<12 hex from the block heading>
     python stripper/decode.py --thread <out>\Comms\_Messages\THR-XXXXXXXX.md
+
+Caps diagnostic and vocabulary builder (PowerShell; `--state` is an EXISTING baseline state, used read-only; both need NER):
+
+    python stripper/capsdiag.py --drop $B\drop --state $B\v070\state --directory $B\directory.md --vocab $B\vocab.txt
+    python stripper/capsvocab.py --drop $B\drop --state $B\v070\state --directory $B\directory.md --vocab $B\vocab.txt --list
+    python stripper/capsvocab.py --drop $B\drop --state $B\v070\state --directory $B\directory.md --vocab $B\vocab.txt
