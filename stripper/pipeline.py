@@ -46,19 +46,31 @@ class Outcome:
     msg_hash: str = ""
 
 
+@dataclass
+class Evaluation:
+    """Pure result of the checks (ADR 0010). `stripped` is the transformed attempt, held in memory only: it is None when the
+    message never reached the transform (ELIG_SIZE) or an unexpected exception occurred. Never stored or logged."""
+    reasons: Counter
+    counts: Counter
+    stripped: dict | None
+    allowed: frozenset
+    msg_hash: str
+
+
 class Pipeline:
     def __init__(self, tr: T.Transformer, quarantine: Q.Quarantine, limits: R.Limits = R.Limits(), vocab=frozenset()):
         if tr.use_ner and not str(N.STATUS).startswith("active"):
             raise RuntimeError("NER was requested but the layer is not active; refusing to run without it")
         self.tr, self.q, self.limits, self.vocab = tr, quarantine, limits, frozenset(vocab)
 
-    def process(self, fields: dict, header_people=(), check=None) -> Outcome:
-        """`check(stripped_fields) -> Counter` is an optional front-end shape check; any reason it returns quarantines."""
+    def evaluate(self, fields: dict, header_people=(), check=None) -> Evaluation:
+        """Every check, no writes: no quarantine, no audit, no key-store save. `process` is this plus the decision."""
         tr, lim = self.tr, self.limits
         msg_hash = tr.hash_fields(fields)
         reasons: Counter = Counter()
         counts: Counter = Counter()
-        out_fields = None
+        stripped = None
+        allowed: frozenset = frozenset()
         try:
             body = [v for k, v in fields.items() if not k.startswith("attachment_")]
             if sum(len(v) for v in body) > lim.max_chars:
@@ -66,24 +78,35 @@ class Pipeline:
             else:
                 r = tr.message(fields, header_people, commit=False, audit=False)
                 counts = r.counts
+                stripped = r.fields
                 if r.has_id and r.has_result_style:
                     reasons["ELIG_RESULT_ID"] += 1
                 people = tr.people.with_header(header_people)
                 allowed = R.allowed_words(people, tr.ignore, self.vocab, header_people)
+                caps_total = 0
                 for name, text in r.fields.items():
                     if name.startswith("attachment_"):
                         reasons.update(R.scan_attachment(text, r.emitted))
                     else:
                         reasons.update(R.scan(text, r.emitted, people, tr.ignore, tr.use_ner, allowed))
-                        reasons.update(R.density(text, allowed, lim))
+                        reasons.update(R.density(text, allowed, lim, caps=lim.unknown_caps == 1))
+                        caps_total += R.unknown_caps(text, allowed)
                         reasons.update(R.cue_check(text, allowed))
+                if lim.unknown_caps > 1 and caps_total >= lim.unknown_caps:
+                    reasons["DENS_CAPS"] += 1
                 if not reasons and check is not None:
                     reasons.update(check(r.fields))
-                if not reasons:
-                    out_fields = r.fields
-        except Exception as exc:  # noqa: BLE001 - fail closed on anything unexpected
+        except Exception:  # noqa: BLE001 - fail closed on anything unexpected
             reasons["PIPELINE_ERROR"] += 1
-            out_fields = None
+            stripped = None
+        return Evaluation(reasons, counts, stripped, allowed, msg_hash)
+
+    def process(self, fields: dict, header_people=(), check=None) -> Outcome:
+        """`check(stripped_fields) -> Counter` is an optional front-end shape check; any reason it returns quarantines."""
+        tr = self.tr
+        ev = self.evaluate(fields, header_people, check)
+        reasons, msg_hash = ev.reasons, ev.msg_hash
+        out_fields = None if reasons else ev.stripped
         if reasons or out_fields is None:
             if not reasons:
                 reasons["PIPELINE_ERROR"] += 1
@@ -91,10 +114,10 @@ class Pipeline:
             self.q.put(msg_hash, message, reasons, VERSION)   # QuarantineError propagates: nothing is released
             tr.store.audit(msg_hash, "quarantined", reasons, VERSION)
             tr.store.save()
-            return Outcome("quarantined", None, reasons, counts, msg_hash)
-        tr.store.audit(msg_hash, "ok", counts, VERSION)
+            return Outcome("quarantined", None, reasons, ev.counts, msg_hash)
+        tr.store.audit(msg_hash, "ok", ev.counts, VERSION)
         tr.store.save()
-        return Outcome("ok", out_fields, reasons, counts, msg_hash)
+        return Outcome("ok", out_fields, reasons, ev.counts, msg_hash)
 
 
 # ---- corpus run (synthetic only) --------------------------------------------------------------------

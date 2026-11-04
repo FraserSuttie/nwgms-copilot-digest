@@ -44,7 +44,7 @@ _DIGITS = re.compile(r"\d")
 @dataclass(frozen=True)
 class Limits:
     max_chars: int = 20000        # ELIG_SIZE: total characters in the non-attachment fields
-    unknown_caps: int = 1         # DENS_CAPS when the count of unknown capitalised words is >= this
+    unknown_caps: int = 1         # DENS_CAPS when unknown capitalised words >= this: in any one field at 1, else the message total (ADR 0010)
     digit_run: int = 5            # DENS_DIGITS: any run of this many digits or more
     clin_markers: int = 3         # DENS_CLIN when [CLIN] occurs this many times or more
 
@@ -104,9 +104,19 @@ def allowed_words(people: G.People, ignore=frozenset(), vocab=frozenset(), heade
     return frozenset(words)
 
 
-def unknown_cap_words(text: str, allowed: frozenset) -> list[str]:
-    """Capitalised words (3+ letters) that are not allowed. A sentence-initial word is skipped only when
-    it is an ordinary opener and is followed by lower-case prose, so a bare name alone on a line still counts."""
+@dataclass(frozen=True)
+class CapHit:
+    """One counted unknown capitalised word. Offsets are into `blank_approved(text)`."""
+    word: str
+    start: int
+    end: int
+    initial: bool        # sentence-initial but counted (not followed by lower-case prose on the same line)
+
+
+def unknown_cap_hits(text: str, allowed: frozenset) -> tuple[str, list[CapHit]]:
+    """Capitalised words (3+ letters) that are not allowed, with positions. A sentence-initial word is skipped only
+    when it is an ordinary opener and is followed by lower-case prose, so a bare name alone on a line still counts.
+    Returns the blanked text the offsets refer to. This is the single definition of the DENS_CAPS count (ADR 0010)."""
     t = blank_approved(text)
     found = []
     for m in _CAP.finditer(t):
@@ -118,17 +128,73 @@ def unknown_cap_words(text: str, allowed: frozenset) -> list[str]:
         initial = not pre or pre[-1] in ".!?:\n\r"
         if initial and t[m.end():m.end() + 24].lstrip(" \t")[:1].islower():
             continue            # ordinary sentence start: "Please check ..."
-        found.append(w)
-    return found
+        found.append(CapHit(w, m.start(), m.end(), initial))
+    return t, found
+
+
+def unknown_cap_words(text: str, allowed: frozenset) -> list[str]:
+    return [h.word for h in unknown_cap_hits(text, allowed)[1]]
 
 
 def unknown_caps(text: str, allowed: frozenset) -> int:
-    return len(unknown_cap_words(text, allowed))
+    return len(unknown_cap_hits(text, allowed)[1])
 
 
-def density(text: str, allowed: frozenset, limits: Limits = Limits()) -> Counter:
+# Shape counts for the caps diagnostic (ADR 0010). Counts only: no function here returns or logs a word.
+PROFILE_KEYS = ("total", "initial", "mid", "hyphen", "possessive", "run2", "run3plus", "isolated", "alone_on_line",
+                "titlecase_line")
+_TOKEN = re.compile(r"[A-Za-z][A-Za-z'\u2019-]*")
+_TITLE_TOK = re.compile(r"[A-Z][a-z]")
+_SMALL = frozenset("a an and of the to in for on at by or with from as is are".split())
+
+
+def _line_bounds(t: str, pos: int) -> tuple[int, int]:
+    return t.rfind("\n", 0, pos) + 1, (t.find("\n", pos) if t.find("\n", pos) >= 0 else len(t))
+
+
+def caps_profile(text: str, allowed: frozenset, part: str | None = None) -> Counter:
+    """Shape of the unknown capitalised words in one field, as counts. Keys are PROFILE_KEYS.
+
+    run2 / run3plus: the word sits in a run of 2 / 3+ adjacent capitalised words (allowed or not); isolated: it does not.
+    alone_on_line: it is the only content on its line. titlecase_line: its line has 2+ words of 3+ letters and every
+    such word starts with a capital (small words aside), as in a Title Case subject or a table header.
+    `part` "subject" / "body" keeps only the hits before / after the first blank line of a `message` field."""
+    t, hits = unknown_cap_hits(text, allowed)
+    if part is not None:
+        sep = t.find("\n\n")
+        hits = [h for h in hits if (sep < 0 or h.start < sep) == (part == "subject")]
+    c: Counter = Counter()
+    for h in hits:
+        c["total"] += 1
+        c["initial" if h.initial else "mid"] += 1
+        if "-" in h.word:
+            c["hyphen"] += 1
+        if t[h.end:h.end + 2] in ("'s", "\u2019s"):
+            c["possessive"] += 1
+        ls, le = _line_bounds(t, h.start)
+        line = t[ls:le]
+        toks = [(m.start() + ls, m.group(0)) for m in _TOKEN.finditer(line)]
+        caps = [bool(_TITLE_TOK.match(w)) for _, w in toks]
+        i = next(k for k, (pos, _) in enumerate(toks) if pos == h.start)
+        a = b = i
+        while a > 0 and caps[a - 1] and t[toks[a - 1][0] + len(toks[a - 1][1]):toks[a][0]] == " ":
+            a -= 1
+        while b + 1 < len(toks) and caps[b + 1] and t[toks[b][0] + len(toks[b][1]):toks[b + 1][0]] == " ":
+            b += 1
+        n = b - a + 1
+        c["run3plus" if n >= 3 else "run2" if n == 2 else "isolated"] += 1
+        if line.strip() == h.word:
+            c["alone_on_line"] += 1
+        big = [w for _, w in toks if len(w) >= 3 and w.lower() not in _SMALL]
+        if len(big) >= 2 and all(_TITLE_TOK.match(w) for w in big):
+            c["titlecase_line"] += 1
+    return c
+
+
+def density(text: str, allowed: frozenset, limits: Limits = Limits(), caps: bool = True) -> Counter:
+    """`caps=False` leaves DENS_CAPS to the caller (the pipeline counts the message total when the limit is above 1)."""
     r = Counter()
-    if unknown_caps(text, allowed) >= limits.unknown_caps:
+    if caps and unknown_caps(text, allowed) >= limits.unknown_caps:
         r["DENS_CAPS"] += 1
     run, best = 0, 0
     for ch in blank_approved(text):

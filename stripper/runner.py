@@ -1,7 +1,7 @@
 """Email batch runner (slice 4, ADR 0006). Run by Fraser on his laptop only; prints COUNTS ONLY, never values.
 
     python stripper/runner.py --drop D --state S --out O --directory P [--vocab F] [--ignore F]
-                              [--retry-quarantined] [--lane-active]
+                              [--retry-quarantined] [--lane-active] [--caps-limit N]
 
 --drop       raw-drop folder (one nwgms-rawdrop/1 JSON per message). May be OneDrive; refused in the repo or a vault.
 --state      local state (key store, review state, quarantine, seen index). Refused in the repo or OneDrive.
@@ -10,6 +10,8 @@
 --directory  People-Directory markdown (read only).
 --vocab      config vocabulary file, one term per line (load_wordlist). Refused in the repo or OneDrive.
 --ignore     review-queue ignore list, one term per line. Refused in the repo or OneDrive.
+--caps-limit unknown capitalised words that quarantine a message (DENS_CAPS), default 1: one in any field. Above 1 it is
+             the message total (ADR 0010). The report prints the limit used.
 
 NER is always required here: the run stops if the layer is not active. Drop files are never modified or deleted.
 """
@@ -183,11 +185,12 @@ class Report:
     inline_images: int = 0
     flags: Counter = field(default_factory=Counter)
     stopped: str = ""
+    caps_limit: int = R.Limits().unknown_caps
 
 
 def run(drop, state, out, directory_md: str, vocab=frozenset(), ignore_words=frozenset(), retry_quarantined=False,
         lane_active=False, protector=None, use_ner=True, year=None, vocab_path=None, ignore_path=None,
-        now: datetime | None = None) -> Report:
+        now: datetime | None = None, limits: R.Limits = R.Limits()) -> Report:
     drop, state, out = check_paths(drop, state, out, vocab_path, ignore_path, lane_active)
     protector = protector or K.default_protector()
     now = now or datetime.now(timezone.utc)
@@ -199,10 +202,10 @@ def run(drop, state, out, directory_md: str, vocab=frozenset(), ignore_words=fro
     ignore = gstate.ignore() | {G.norm(w) for w in ignore_words}
     review: Counter = Counter()
     tr = T.Transformer(store, people, ignore=ignore, review=review, use_ner=use_ner, year=year)
-    pipe = P.Pipeline(tr, quar, vocab=vocab)
+    pipe = P.Pipeline(tr, quar, limits=limits, vocab=vocab)
     seen = Seen(state)
     msg_dir = out / "Comms" / "_Messages"
-    rep = Report()
+    rep = Report(caps_limit=limits.unknown_caps)
     touched: dict[str, list[str]] = {}
     new_threads: set[str] = set()
     try:
@@ -298,7 +301,7 @@ def write_manifest(out: Path, rep: Report, touched: dict, now: datetime) -> Path
 def report_counts(rep: Report) -> dict:
     return {"files read": rep.files, "unreadable": rep.unreadable, "schema rejects": rep.schema_rejects,
             "duplicates skipped": rep.duplicates, "released": rep.released, "quarantined": rep.quarantined,
-            "quarantine reasons": _counts(rep.reasons), "threads touched": rep.threads_touched,
+            "unknown-caps limit": rep.caps_limit, "quarantine reasons": _counts(rep.reasons), "threads touched": rep.threads_touched,
             "threads new": rep.threads_new, "torn blocks": rep.torn_blocks,
             "already written (replay)": rep.already_written, "attachments listed": rep.attachments,
             "inline images (not kept)": rep.inline_images, "front-end flags": _counts(rep.flags)}
@@ -322,9 +325,12 @@ def main(argv=None) -> int:
     ap.add_argument("--ignore", type=Path)
     ap.add_argument("--retry-quarantined", action="store_true")
     ap.add_argument("--lane-active", action="store_true")
+    ap.add_argument("--caps-limit", type=int, default=R.Limits().unknown_caps)
     a = ap.parse_args(argv)
     try:
         check_paths(a.drop, a.state, a.out, a.vocab, a.ignore, a.lane_active)
+        if a.caps_limit < 1:
+            raise Refused("--caps-limit must be 1 or more")
         vocab = R.load_wordlist(a.vocab) if a.vocab else frozenset()
         ignore = R.load_wordlist(a.ignore) if a.ignore else frozenset()
         directory = a.directory.read_text(encoding="utf-8")
@@ -332,7 +338,8 @@ def main(argv=None) -> int:
         if not str(N.STATUS).startswith("active"):
             raise Refused("the NER layer is not active; real runs require it")
         rep = run(a.drop, a.state, a.out, directory, vocab, ignore, a.retry_quarantined, a.lane_active,
-                  use_ner=True, vocab_path=a.vocab, ignore_path=a.ignore)
+                  use_ner=True, vocab_path=a.vocab, ignore_path=a.ignore,
+                  limits=R.Limits(unknown_caps=a.caps_limit))
     except Refused as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
