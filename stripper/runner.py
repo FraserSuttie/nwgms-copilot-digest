@@ -1,7 +1,7 @@
 """Email batch runner (slice 4, ADR 0006). Run by Fraser on his laptop only; prints COUNTS ONLY, never values.
 
     python stripper/runner.py --drop D --state S --out O --directory P [--vocab F] [--ignore F]
-                              [--retry-quarantined] [--lane-active] [--caps-limit N]
+                              [--retry-quarantined] [--lane-active] [--caps-limit N] [--phrases F]
 
 --drop       raw-drop folder (one nwgms-rawdrop/1 JSON per message). May be OneDrive; refused in the repo or a vault.
 --state      local state (key store, review state, quarantine, seen index). Refused in the repo or OneDrive.
@@ -10,6 +10,8 @@
 --directory  People-Directory markdown (read only).
 --vocab      config vocabulary file, one term per line (load_wordlist). Refused in the repo or OneDrive.
 --ignore     review-queue ignore list, one term per line. Refused in the repo or OneDrive.
+--phrases   allowed multi-word phrases, one per line (ADR 0011), e.g. a public organisation name. Both words pass only when
+             adjacent in that order. Refused in the repo or OneDrive.
 --caps-limit unknown capitalised words that quarantine a message (DENS_CAPS), default 1: one in any field. Above 1 it is
              the message total (ADR 0010). The report prints the limit used.
 
@@ -72,7 +74,7 @@ def _vault_root(p: Path) -> Path | None:
     return None
 
 
-def check_paths(drop, state, out, vocab=None, ignore=None, lane_active=False) -> tuple[Path, Path, Path]:
+def check_paths(drop, state, out, vocab=None, ignore=None, lane_active=False, phrases=None) -> tuple[Path, Path, Path]:
     drop, state, out = _resolved(drop), _resolved(state), _resolved(out)
     if _in_repo(drop):
         raise Refused("drop must not be inside the repo")
@@ -87,7 +89,7 @@ def check_paths(drop, state, out, vocab=None, ignore=None, lane_active=False) ->
     for a, b in ((drop, out), (drop, state), (state, out)):
         if a == b or a in b.parents or b in a.parents:
             raise Refused("drop, state and out must be separate folders")
-    for f in (vocab, ignore):
+    for f in (vocab, ignore, phrases):
         if f is not None:
             fp = _resolved(f)
             if _in_repo(fp) or _in_onedrive(fp):
@@ -189,9 +191,9 @@ class Report:
 
 
 def run(drop, state, out, directory_md: str, vocab=frozenset(), ignore_words=frozenset(), retry_quarantined=False,
-        lane_active=False, protector=None, use_ner=True, year=None, vocab_path=None, ignore_path=None,
+        lane_active=False, protector=None, use_ner=True, year=None, vocab_path=None, ignore_path=None, phrases_path=None,
         now: datetime | None = None, limits: R.Limits = R.Limits()) -> Report:
-    drop, state, out = check_paths(drop, state, out, vocab_path, ignore_path, lane_active)
+    drop, state, out = check_paths(drop, state, out, vocab_path, ignore_path, lane_active, phrases_path)
     protector = protector or K.default_protector()
     now = now or datetime.now(timezone.utc)
     state.mkdir(parents=True, exist_ok=True)
@@ -323,22 +325,28 @@ def main(argv=None) -> int:
     ap.add_argument("--directory", required=True, type=Path)
     ap.add_argument("--vocab", type=Path)
     ap.add_argument("--ignore", type=Path)
+    ap.add_argument("--phrases", type=Path)
     ap.add_argument("--retry-quarantined", action="store_true")
     ap.add_argument("--lane-active", action="store_true")
     ap.add_argument("--caps-limit", type=int, default=R.Limits().unknown_caps)
     a = ap.parse_args(argv)
     try:
-        check_paths(a.drop, a.state, a.out, a.vocab, a.ignore, a.lane_active)
+        check_paths(a.drop, a.state, a.out, a.vocab, a.ignore, a.lane_active, a.phrases)
         if a.caps_limit < 1:
             raise Refused("--caps-limit must be 1 or more")
         vocab = R.load_wordlist(a.vocab) if a.vocab else frozenset()
+        if a.phrases:
+            try:
+                vocab = vocab | R.load_phrases(a.phrases)
+            except ValueError as exc:
+                raise Refused(str(exc)) from None
         ignore = R.load_wordlist(a.ignore) if a.ignore else frozenset()
         directory = a.directory.read_text(encoding="utf-8")
         N.load()
         if not str(N.STATUS).startswith("active"):
             raise Refused("the NER layer is not active; real runs require it")
         rep = run(a.drop, a.state, a.out, directory, vocab, ignore, a.retry_quarantined, a.lane_active,
-                  use_ner=True, vocab_path=a.vocab, ignore_path=a.ignore,
+                  use_ner=True, vocab_path=a.vocab, ignore_path=a.ignore, phrases_path=a.phrases,
                   limits=R.Limits(unknown_caps=a.caps_limit))
     except Refused as exc:
         print(f"refused: {exc}", file=sys.stderr)

@@ -97,7 +97,7 @@ def _external_words(header_people) -> frozenset:
     return frozenset(words)
 
 
-def check_read_paths(drop, state, vocab=None, ignore=None) -> tuple[Path, Path]:
+def check_read_paths(drop, state, vocab=None, ignore=None, phrases=None) -> tuple[Path, Path]:
     drop, state = RN._resolved(drop), RN._resolved(state)
     if RN._in_repo(drop):
         raise Refused("drop must not be inside the repo")
@@ -107,7 +107,7 @@ def check_read_paths(drop, state, vocab=None, ignore=None) -> tuple[Path, Path]:
         raise Refused("state must be local: not inside the repo or OneDrive")
     if state == drop or state in drop.parents or drop in state.parents:
         raise Refused("drop and state must be separate folders")
-    for f in (vocab, ignore):
+    for f in (vocab, ignore, phrases):
         if f is not None:
             fp = RN._resolved(f)
             if RN._in_repo(fp) or RN._in_onedrive(fp):
@@ -118,8 +118,8 @@ def check_read_paths(drop, state, vocab=None, ignore=None) -> tuple[Path, Path]:
 
 
 def scan_drop(drop, state, directory_md: str, vocab=frozenset(), ignore_words=frozenset(), use_ner: bool = True,
-              year=None, protector=None, vocab_path=None, ignore_path=None) -> ScanResult:
-    drop, state = check_read_paths(drop, state, vocab_path, ignore_path)
+              year=None, protector=None, vocab_path=None, ignore_path=None, phrases_path=None) -> ScanResult:
+    drop, state = check_read_paths(drop, state, vocab_path, ignore_path, phrases_path)
     protector = protector or K.default_protector()
     store = K.KeyStore(state, protector)          # master exists (checked above): this only reads
     gstate = G.State(state, protector)

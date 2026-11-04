@@ -18,10 +18,10 @@ Synthetic data only. Nothing here reads real mail.
 | `pipeline.py` | Eligibility, transform, residual scan, density, quarantine. `python stripper/pipeline.py [--ner]` prints a counts-only corpus report |
 | `density.py` | Density threshold sweep over the synthetic corpus (`--ner` for the real numbers) |
 | `mailfront.py` | Email front end: `nwgms-rawdrop/1` contract check, normaliser (HTML, history, signature, disclaimers, encodings), message record (ADR 0006) |
-| `runner.py` | Email batch runner: raw drop to per-thread append-only blocks plus an `_Intake` batch manifest; counts only; NER required; `--caps-limit N` (default 1) |
+| `runner.py` | Email batch runner: raw drop to per-thread append-only blocks plus an `_Intake` batch manifest; counts only; NER required; `--caps-limit N` (default 1); `--phrases F` (ADR 0011) |
 | `capsscan.py` | Read-only scan of a raw drop through `Pipeline.evaluate` for the caps tools; keeps unknown capitalised words in memory only (ADR 0010) |
 | `capsdiag.py` | Count-only DENS_CAPS diagnostic: outcome groups, histogram, release curve by limit, shape and section splits, vocabulary coverage. Prints no word, writes no file |
-| `capsvocab.py` | Local vocabulary builder (Fraser only, terminal only): ranked words, flags, allow one at a time, appends to a local `--vocab` file; `--list` writes nothing |
+| `capsvocab.py` | Local vocabulary builder (Fraser only, terminal only): ranked words, flags, allow one at a time, appends to a local `--vocab` file; `--phrases F` for adjacent word pairs; `--list` writes nothing |
 | `decode.py` | Local decode CLI (run by Fraser only): tokens or `--thread` lookup table, terminal only, audit line, never message text (ADR 0007) |
 | `corpus/rawdrop.py` | Synthetic raw-drop generator and per-block scorer (counts only) |
 | `recall.py` | Per-category recall report, counts only (`--ner`, `--gate`) |

@@ -125,6 +125,7 @@ def main(argv=None, protector=None, use_ner: bool = True, out=sys.stdout, inp=sy
     ap.add_argument("--directory", required=True, type=Path)
     ap.add_argument("--vocab", type=Path, help="local vocabulary file to read and append to (required unless --list)")
     ap.add_argument("--ignore", type=Path)
+    ap.add_argument("--phrases", type=Path, help="allowed multi-word phrases, one per line (ADR 0011)")
     ap.add_argument("--min-threads", type=int, default=2)
     ap.add_argument("--top", type=int, default=200)
     ap.add_argument("--all", action="store_true", help="include words seen in only one thread")
@@ -137,9 +138,14 @@ def main(argv=None, protector=None, use_ner: bool = True, out=sys.stdout, inp=sy
             raise Refused("stdin is not a terminal: allowing words is interactive (use --list to print only)")
         if not a.list and a.vocab is None:
             raise Refused("--vocab FILE is required to allow words")
-        S.check_read_paths(a.drop, a.state, a.vocab, a.ignore)
+        S.check_read_paths(a.drop, a.state, a.vocab, a.ignore, a.phrases)
         vocab_path = check_vocab_target(a.vocab, a.drop) if a.vocab else None
         vocab = R.load_wordlist(vocab_path) if vocab_path and vocab_path.exists() else frozenset()
+        if a.phrases:
+            try:
+                vocab = vocab | R.load_phrases(a.phrases)
+            except ValueError as exc:
+                raise S.Refused(str(exc)) from None
         ignore = R.load_wordlist(a.ignore) if a.ignore else frozenset()
         directory = a.directory.read_text(encoding="utf-8")
         if use_ner:
@@ -147,7 +153,7 @@ def main(argv=None, protector=None, use_ner: bool = True, out=sys.stdout, inp=sy
             if not str(N.STATUS).startswith("active"):
                 raise Refused("the NER layer is not active; real runs require it")
         res = S.scan_drop(a.drop, a.state, directory, vocab, ignore, use_ner=use_ner, protector=protector,
-                          vocab_path=a.vocab, ignore_path=a.ignore)
+                          vocab_path=a.vocab, ignore_path=a.ignore, phrases_path=a.phrases)
         run(res, vocab_path, out, inp, a.min_threads, a.top, a.all, a.list)
     except Refused as exc:
         print(f"refused: {exc}", file=sys.stderr)

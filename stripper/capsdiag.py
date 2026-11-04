@@ -160,10 +160,16 @@ def main(argv=None, protector=None, use_ner: bool = True, out=sys.stdout) -> int
     ap.add_argument("--directory", required=True, type=Path)
     ap.add_argument("--vocab", type=Path)
     ap.add_argument("--ignore", type=Path)
+    ap.add_argument("--phrases", type=Path, help="allowed multi-word phrases, one per line (ADR 0011)")
     a = ap.parse_args(argv)
     try:
-        S.check_read_paths(a.drop, a.state, a.vocab, a.ignore)
+        S.check_read_paths(a.drop, a.state, a.vocab, a.ignore, a.phrases)
         vocab = R.load_wordlist(a.vocab) if a.vocab else frozenset()
+        if a.phrases:
+            try:
+                vocab = vocab | R.load_phrases(a.phrases)
+            except ValueError as exc:
+                raise S.Refused(str(exc)) from None
         ignore = R.load_wordlist(a.ignore) if a.ignore else frozenset()
         directory = a.directory.read_text(encoding="utf-8")
         if use_ner:
@@ -171,7 +177,7 @@ def main(argv=None, protector=None, use_ner: bool = True, out=sys.stdout) -> int
             if not str(N.STATUS).startswith("active"):
                 raise S.Refused("the NER layer is not active; real runs require it")
         res = S.scan_drop(a.drop, a.state, directory, vocab, ignore, use_ner=use_ner, protector=protector,
-                          vocab_path=a.vocab, ignore_path=a.ignore)
+                          vocab_path=a.vocab, ignore_path=a.ignore, phrases_path=a.phrases)
     except S.Refused as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2

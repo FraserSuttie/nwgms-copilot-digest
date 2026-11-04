@@ -92,16 +92,48 @@ ORG_WORDS = frozenset("manchester university nhs foundation trust ft mft nwgms".
 def allowed_words(people: G.People, ignore=frozenset(), vocab=frozenset(), header_people=()) -> frozenset:
     """Lower-case words that never count as 'unknown capitalised': staff tokens, config vocabulary,
     ignore-list terms (review queue), Trust-domain header participants, days and months."""
-    words = set(DAYS_MONTHS) | ORG_WORDS | {w.lower() for w in vocab}
+    words = set(DAYS_MONTHS) | ORG_WORDS | {_apos(w.lower()) for w in vocab}   # vocab entries with a space are phrases (ADR 0011)
     for tok in people.tokens:
-        words.update(re.findall(r"[a-z0-9']+", tok))
+        words.update(re.findall(r"[a-z0-9']+", _apos(tok)))
     for n in ignore:
-        words.update(re.findall(r"[a-z0-9']+", n))
+        words.update(re.findall(r"[a-z0-9']+", _apos(n)))
     for display, addr in header_people:   # Trust-domain participants only: an external display name is not allowed
         dom = addr.rsplit("@", 1)[-1].lower()
         if any(dom == d or dom.endswith("." + d) for d in G.P.ALLOWED_EMAIL_DOMAINS):
-            words.update(re.findall(r"[a-z0-9']+", display.lower()))
+            words.update(re.findall(r"[a-z0-9']+", _apos(display.lower())))
     return frozenset(words)
+
+
+def _apos(s: str) -> str:
+    return s.replace("\u2019", "'")
+
+
+_APOS_BEFORE = re.compile(r"([A-Za-z]+)['\u2019]$")
+_NEXT_WORD = re.compile(r" ([A-Za-z]+)")
+_PREV_WORD = re.compile(r"([A-Za-z]+) $")
+
+
+def _in_phrase(t: str, start: int, end: int, lw: str, allowed: frozenset) -> bool:
+    """True when this word and its single-space neighbour form an allowed phrase, in that order (ADR 0011)."""
+    nxt = _NEXT_WORD.match(t, end)
+    if nxt and f"{lw} {nxt.group(1).lower()}" in allowed:
+        return True
+    prv = _PREV_WORD.search(t, max(0, start - 40), start)
+    return bool(prv and f"{prv.group(1).lower()} {lw}" in allowed)
+
+
+def load_phrases(path) -> frozenset:
+    """Allowed multi-word phrases from a local text file, one per line (ADR 0011). Each is lower-cased with single
+    spaces. A line with fewer than two words is refused, because a one-word phrase would just be vocabulary."""
+    out = set()
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        words = re.findall(r"[A-Za-z0-9'\u2019]+", line)
+        if not words:
+            continue
+        if len(words) < 2:
+            raise ValueError("each phrase needs two or more words")
+        out.add(_apos(" ".join(words).lower()))
+    return frozenset(out)
 
 
 @dataclass(frozen=True)
@@ -119,10 +151,16 @@ def unknown_cap_hits(text: str, allowed: frozenset) -> tuple[str, list[CapHit]]:
     Returns the blanked text the offsets refer to. This is the single definition of the DENS_CAPS count (ADR 0010)."""
     t = blank_approved(text)
     found = []
+    phrases = any(" " in a for a in allowed)
     for m in _CAP.finditer(t):
         w = m.group(0)
         lw = w.lower()
         if lw in allowed or lw in OPENERS or any(p in allowed for p in lw.split("-")):
+            continue
+        ap = _APOS_BEFORE.search(t, max(0, m.start() - 40), m.start())
+        if ap and f"{_apos(ap.group(1).lower())}'{lw}" in allowed:
+            continue                # "O'Xxxx": the whole token is allowed (a Directory surname), not just its tail
+        if phrases and _in_phrase(t, m.start(), m.end(), lw, allowed):
             continue
         pre = t[:m.start()].rstrip(" \t")
         initial = not pre or pre[-1] in ".!?:\n\r"
