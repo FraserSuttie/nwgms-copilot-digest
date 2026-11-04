@@ -85,10 +85,14 @@ def scan(text: str, emitted, people: G.People, ignore=frozenset(), use_ner: bool
     return r
 
 
+# Public organisation words (ADR 0009): display names no longer carry them, so they are allowed here instead.
+ORG_WORDS = frozenset("manchester university nhs foundation trust ft mft nwgms".split())
+
+
 def allowed_words(people: G.People, ignore=frozenset(), vocab=frozenset(), header_people=()) -> frozenset:
     """Lower-case words that never count as 'unknown capitalised': staff tokens, config vocabulary,
     ignore-list terms (review queue), Trust-domain header participants, days and months."""
-    words = set(DAYS_MONTHS) | {w.lower() for w in vocab}
+    words = set(DAYS_MONTHS) | ORG_WORDS | {w.lower() for w in vocab}
     for tok in people.tokens:
         words.update(re.findall(r"[a-z0-9']+", tok))
     for n in ignore:

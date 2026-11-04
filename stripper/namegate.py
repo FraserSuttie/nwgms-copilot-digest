@@ -51,24 +51,47 @@ def norm(name: str) -> str:
 class People:
     """Known staff. `full` maps normalised full name -> source tag (DIR, HEADER, LOCAL)."""
     full: dict = field(default_factory=dict)
-    tokens: dict = field(default_factory=dict)  # first/last token -> set of full names
+    tokens: dict = field(default_factory=dict)  # first/last token -> set of canonical full names
+    canon: dict = field(default_factory=dict)   # other-order variant -> canonical full name (ADR 0009)
 
-    def add(self, name: str, source: str) -> None:
+    def copy(self) -> "People":
+        return People(dict(self.full), {k: set(v) for k, v in self.tokens.items()}, dict(self.canon))
+
+    def add(self, name: str, source: str, both_orders: bool = False, label: bool = False) -> None:
+        """`both_orders`: also accept 'second first' for a two-token name (Trust 'Surname Forename' display names);
+        tokens stay on ONE canonical name so a surname never maps to two strings (that would read as ambiguous).
+        `label`: a non-person display name (shared mailbox): exact string only, no tokens."""
         n = norm(name)
         parts = n.split()
         if len(parts) < 2 or any(ch.isdigit() for ch in n):
             return
+        if label:
+            self.full.setdefault(n, source)
+            return
+        rev = " ".join(reversed(parts)) if both_orders and len(parts) == 2 else None
+        if rev and rev != n:
+            known = n if n in self.full else rev if rev in self.full else None
+            if known:                       # same person already known (e.g. the Directory): add the other order only
+                c = self.canon.get(known, known)
+                for v in (n, rev):
+                    if v != c:
+                        self.full.setdefault(v, source)
+                        self.canon[v] = c
+                return
+            self.full.setdefault(rev, source)
+            self.canon[rev] = n
         self.full.setdefault(n, source)
         for t in {parts[0], parts[-1]}:
             self.tokens.setdefault(t, set()).add(n)
 
     def with_header(self, header_people, trusted=P.ALLOWED_EMAIL_DOMAINS) -> "People":
         """Copy of self plus header participants whose address is on a Trust domain."""
-        out = People(dict(self.full), {k: set(v) for k, v in self.tokens.items()})
+        out = self.copy()
         for display, addr in header_people:
             dom = addr.rsplit("@", 1)[-1].lower()
             if any(dom == d or dom.endswith("." + d) for d in trusted):
-                out.add(display, "HEADER")
+                two = len(norm(display).split()) == 2     # anything else is a label (shared mailbox): exact string only
+                out.add(display, "HEADER", both_orders=two, label=not two)
         return out
 
 
@@ -157,7 +180,7 @@ def gate(text: str, ner_spans, people: People, ignore=frozenset(), review: Count
             out[(s, e)] = ("pass", "IGNORED")
         elif k >= 2 and n in people.full:
             out[(s, e)] = ("pass", "FULL_" + people.full[n])
-            present.add(n)
+            present.add(people.canon.get(n, n))
         elif k >= 2:
             out[(s, e)] = ("name", "UNKNOWN_FULL")
     for s, e, n, k in info:
@@ -246,7 +269,7 @@ class State:
         return n
 
     def people(self, base: People) -> People:
-        out = People(dict(base.full), {k: set(v) for k, v in base.tokens.items()})
+        out = base.copy()
         for n in self.data["staff"]:
             out.add(n, "LOCAL")
         return out

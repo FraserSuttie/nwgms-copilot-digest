@@ -279,10 +279,27 @@ def normalise_subject(subject: str, flags: Counter) -> str:
         s = s[m.end():]
 
 
+# Trailing organisation text on Trust display names (ADR 0009). An unlisted suffix is left in place, which fails
+# closed: the participant is then masked, as before. Longest first.
+ORG_SUFFIXES = ("manchester university nhs foundation trust", "manchester university nhs ft", "nhs foundation trust",
+                "nhs ft", "mft", "nwgms")
+_ORG_END = re.compile(r"(?:^|\s)(?:" + "|".join(re.escape(x) for x in ORG_SUFFIXES) + r")$", re.I)
+_DISAMBIG_END = re.compile(r"(?:^|\s)\d{1,2}$")
+
+
 def display_name(name: str) -> str:
-    """'Surname, Forename (Org)' -> 'Forename Surname'. Quotes and parentheticals dropped."""
+    """Display name -> 'Forename Surname' where the shape allows it (ADR 0009).
+
+    Quotes and parentheticals dropped; trailing organisation text (ORG_SUFFIXES) and a trailing 1-2 digit
+    disambiguator removed; 'Surname, Forename' swapped. 'Surname Forename' (no comma) is NOT swapped: it cannot be
+    told from 'Forename Surname', so People stores both orders instead."""
     n = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", name).replace('"', " ")
     n = re.sub(r"\s+", " ", n).strip()
+    while True:
+        m = _ORG_END.search(n) or _DISAMBIG_END.search(n)
+        if not m or not n[:m.start()].strip():
+            break
+        n = n[:m.start()].strip()
     if n.count(",") == 1:
         a, b = (x.strip() for x in n.split(","))
         n = f"{b} {a}".strip()
