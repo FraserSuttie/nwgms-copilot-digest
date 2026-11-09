@@ -1,4 +1,4 @@
-"""Regression set from the session 11 leak read (ADR 0012 to 0014). Invented values only.
+"""Regression set from the session 11 leak read (ADR 0012 to 0014) and the A2 limitation kinds. Invented values only.
 
     python -m unittest discover -s stripper/tests -v
 """
@@ -33,7 +33,7 @@ class RegressionSetTests(unittest.TestCase):
 
     def test_deterministic_and_sized(self):
         self.assertEqual(C.regression(), self.msgs)
-        self.assertEqual(len(self.msgs), 20 * len(C.REGRESSION_KINDS))
+        self.assertEqual(len(self.msgs), 20 * len(C.REGRESSION_KINDS + C.LIMITATION_KINDS))
         self.assertEqual(len({m["id"] for m in self.msgs}), len(self.msgs))
 
     def test_every_kind_planted_with_valid_spans(self):
@@ -45,11 +45,27 @@ class RegressionSetTests(unittest.TestCase):
                 spans.append((l["start"], l["end"]))
                 if l["adversarial"]:
                     kinds[l["kind"]] += 1
-                    self.assertIn(l["category"], C.CATEGORIES_REGRESSION + ["external_contact_name"])
+                    self.assertIn(l["category"], C.CATEGORIES_REGRESSION + ["external_contact_name", "patient_name"])
             spans.sort()
             for a, b in zip(spans, spans[1:]):
                 self.assertLessEqual(a[1], b[0])
-        self.assertEqual(set(kinds), set(C.REGRESSION_KINDS))
+        self.assertEqual(set(kinds), set(C.REGRESSION_KINDS + C.LIMITATION_KINDS))
+
+    def test_limitation_kinds_come_last(self):
+        # Adding the A2 kinds must not change the fixed-kind messages that precede them.
+        n = 20 * len(C.REGRESSION_KINDS)
+        self.assertTrue(all(l["kind"] not in C.LIMITATION_KINDS for m in self.msgs[:n] for l in m["labels"]))
+        self.assertTrue(all(any(l["kind"] in C.LIMITATION_KINDS for l in m["labels"]) for m in self.msgs[n:]))
+
+    def test_initials_metric_sees_initials_only_as_whole_tokens(self):
+        msg = {"fields": {"body": "x"}, "labels": [{"field": "body", "category": "patient_name", "start": 0, "end": 4,
+                                                     "kind": "initials_uncued"}]}
+        msg["fields"]["body"] = "Q.Z. is booked."
+        self.assertEqual(PL.initials_surviving(msg, {"body": "Q.Z. is booked."}), Counter({"initials_uncued": 1}))
+        self.assertEqual(PL.initials_surviving(msg, {"body": "[NAME-1] is booked."}), Counter())
+        msg2 = {"fields": {"body": "QZ again"}, "labels": [{"field": "body", "category": "patient_name", "start": 0,
+                                                           "end": 2, "kind": "initials_uncued"}]}
+        self.assertEqual(PL.initials_surviving(msg2, {"body": "AQZB again"}), Counter())
 
     def test_main_corpus_has_no_regression_categories(self):
         cats = {l["category"] for m in C.generate(200, 7) for l in m["labels"]}
@@ -75,9 +91,11 @@ class RegressionSetTests(unittest.TestCase):
             st = K.KeyStore(Path(td) / "ks", K.TestOnlyProtector())
             q = Q.Quarantine(Path(td) / "ks", K.TestOnlyProtector())
             tr = T.Transformer(st, G.parse_directory(C.regression_directory_markdown()), year=2026)
-            s = PL.run_corpus(self.msgs, PL.Pipeline(tr, q, vocab=PL.corpus_vocab()), T.LEAK_CATS + C.CATEGORIES_REGRESSION)
+            fixed = [m for m in self.msgs if any(l["kind"] in C.REGRESSION_KINDS for l in m["labels"])]
+            s = PL.run_corpus(fixed, PL.Pipeline(tr, q, vocab=PL.corpus_vocab()), T.LEAK_CATS + C.CATEGORIES_REGRESSION)
         self.assertEqual(s["ok_leaks"], Counter())
         self.assertEqual(s["ok_name_msgs"], 0)
+        self.assertEqual(s["ok_initials_msgs"], 0)
         self.assertGreater(s["ok"], 0)
 
 

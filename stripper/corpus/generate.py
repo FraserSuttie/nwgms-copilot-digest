@@ -42,6 +42,8 @@ CATEGORIES_KEEP = ["staff_name_directory", "staff_name_header", "config_vocab", 
 # Regression set only (session 11 leak read; ADR 0012 to 0014). Kept out of generate() so the main corpus is unchanged.
 CATEGORIES_REGRESSION = ["credential", "order_number", "date_malformed"]
 REGRESSION_KINDS = ["cred_quoted", "cred_labelled", "order_cued", "date_double_sep", "ext_in_directory"]
+# Measured limitations (A2): patient names with no cue word beside them. Reported, not asserted to be zero.
+LIMITATION_KINDS = ["lower_name_uncued", "initials_uncued"]
 REGRESSION_SEED = 20261109
 
 
@@ -409,6 +411,26 @@ def build_regression(g: Gen, i: int, kind: str, j: int) -> dict:
     elif kind == "date_double_sep":
         lead, tail = [("The letter is dated ", "."), ("DOB ", " on the form."), ("Sample received ", ", see notes.")][j % 3]
         b.add(lead).plant("date_malformed", g.bad_date(), kind).add(tail)
+    elif kind == "lower_name_uncued":
+        f, l, _ = g.pt_name()
+        v = j % 4
+        if v == 0:
+            b.add("Spoke to ").plant("patient_name", f"{f} {l}".lower(), kind).add(" this morning about the form.")
+        elif v == 1:
+            b.add("Can you pull up ").plant("patient_name", f"{f} {l}".lower(), kind).add(" on the list before Friday?")
+        elif v == 2:
+            b.plant("patient_name", f"{f} {l}".lower(), kind).add("’s mum rang about the letter.")
+        else:
+            b.add("The ").plant("patient_name", l.lower(), kind).add(" family have been in touch again.")
+    elif kind == "initials_uncued":
+        f, l, _ = g.pt_name()
+        v = j % 3
+        if v == 0:
+            b.plant("patient_name", f"{f[0]}.{l[0]}.", kind).add(" is booked for Tuesday.")
+        elif v == 1:
+            b.add("Can you check the form for ").plant("patient_name", f"{f[0]}{l[0]}", kind).add(" again?")
+        else:
+            b.add("I spoke to ").plant("patient_name", f"{f[0]}.{l[0]}.", kind).add(" earlier and all is fine.")
     else:  # ext_in_directory
         full, _ = V.EXT_DIRECTORY[j % len(V.EXT_DIRECTORY)]
         plain = re.sub(r"\s*\([^)]*\)", "", full)
@@ -425,10 +447,11 @@ def build_regression(g: Gen, i: int, kind: str, j: int) -> dict:
 
 def regression(n_per_kind: int = 20, seed: int = REGRESSION_SEED) -> list[dict]:
     """Regression set from the session 11 leak read (ADR 0012 to 0014). Own seed and RNG, so generate() is unchanged.
+    LIMITATION_KINDS (un-cued lowercase names and initials) come last, so the earlier messages do not change.
     Run it with regression_directory_markdown(), which lists the external people."""
     g = Gen(seed)
     out = []
-    for kind in REGRESSION_KINDS:
+    for kind in REGRESSION_KINDS + LIMITATION_KINDS:
         for j in range(n_per_kind):
             out.append(build_regression(g, len(out), kind, j))
     return out

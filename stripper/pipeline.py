@@ -141,6 +141,19 @@ def name_fragments_surviving(msg: dict, out_fields: dict) -> Counter:
     return c
 
 
+def initials_surviving(msg: dict, out_fields: dict) -> Counter:
+    """Planted names with no 3-letter token (initials such as 'M.A.' or 'MA') still present verbatim in the output, by
+    kind. name_fragments_surviving cannot see these. Counts only."""
+    c = Counter()
+    for l in msg["labels"]:
+        if l["category"] in NAME_CATS and not l["field"].startswith("attachment_"):
+            planted = unicodedata.normalize("NFKC", msg["fields"][l["field"]][l["start"]:l["end"]]).strip()
+            if planted and not re.search(r"[A-Za-z]{3,}", planted) and re.search(
+                    r"(?<![A-Za-z])" + re.escape(planted) + r"(?![A-Za-z])", out_fields[l["field"]]):
+                c[l["kind"]] += 1
+    return c
+
+
 def corpus_vocab() -> frozenset:
     import vocab as V
     # Stand-in for Fraser's local vocabulary file / review-queue ignore list: system and domain words that are
@@ -155,7 +168,7 @@ def run_corpus(msgs, pipe: Pipeline, leak_cats=None) -> dict:
     leak_cats = T.LEAK_CATS if leak_cats is None else leak_cats
     s = {"messages": len(msgs), "ok": 0, "quarantined": 0, "reasons": Counter(), "reason_msgs": Counter(),
          "ok_name_msgs": 0, "ok_name_kinds": Counter(), "q_clean": 0, "q_leaky": 0, "leaky": 0, "ok_leaks": Counter(),
-         "planted": Counter()}
+         "planted": Counter(), "ok_initials_msgs": 0, "ok_initials_kinds": Counter(), "ok_name_by_kind_msgs": Counter()}
     for m in msgs:
         o = pipe.process(m["fields"], m["meta"].get("header_people", []))
         sur = Counter()
@@ -165,6 +178,10 @@ def run_corpus(msgs, pipe: Pipeline, leak_cats=None) -> dict:
             if sur:
                 s["ok_name_msgs"] += 1
                 s["ok_name_kinds"].update(sur)
+            ini = initials_surviving(m, o.fields)
+            if ini:
+                s["ok_initials_msgs"] += 1
+                s["ok_initials_kinds"].update(ini)
             for l in m["labels"]:
                 if l["category"] in leak_cats and l["action"] == "strip":
                     planted = unicodedata.normalize("NFKC", m["fields"][l["field"]][l["start"]:l["end"]])
@@ -199,17 +216,29 @@ def main() -> None:
     print("reason-code counts:", dict(sorted(s["reasons"].items())))
     print(f"\nEND TO END, released (ok) messages with a planted name fragment still present: {s['ok_name_msgs']} of {s['ok']}  by kind: {dict(s['ok_name_kinds'])}")
     print("released messages with a planted strip item still present verbatim:", dict(s["ok_leaks"]) or "none")
+    print(f"released messages with planted initials still present (not counted above): {s['ok_initials_msgs']} of {s['ok']}"
+          f"  by kind: {dict(s['ok_initials_kinds'])}")
     # Regression set (session 11 leak read; ADR 0012 to 0014): own seed, own throwaway stores, Directory with externals.
+    # The fixed kinds must release nothing; the LIMITATION kinds (un-cued patient names, A2) are measured, not asserted.
     reg = C.regression()
+    fixed = [m for m in reg if any(l["kind"] in C.REGRESSION_KINDS for l in m["labels"])]
+    lim = [m for m in reg if any(l["kind"] in C.LIMITATION_KINDS for l in m["labels"])]
     with tempfile.TemporaryDirectory() as td:
         st = K.KeyStore(Path(td) / "ks", K.TestOnlyProtector())
         q = Q.Quarantine(Path(td) / "ks", K.TestOnlyProtector())
         tr = T.Transformer(st, G.parse_directory(C.regression_directory_markdown()), use_ner=a.ner, year=2026)
-        r = run_corpus(reg, Pipeline(tr, q, vocab=corpus_vocab()), T.LEAK_CATS + C.CATEGORIES_REGRESSION)
-    print(f"\nREGRESSION set (Run 10 leak read; ADR 0012 to 0014): messages={r['messages']} ok={r['ok']} quarantined={r['quarantined']}")
-    print("  quarantined messages by reason:", dict(sorted(r["reason_msgs"].items())) or "none")
-    print(f"  released with a planted name fragment: {r['ok_name_msgs']}; with a planted strip item verbatim:",
-          dict(r["ok_leaks"]) or "none")
+        pipe = Pipeline(tr, q, vocab=corpus_vocab())
+        rf = run_corpus(fixed, pipe, T.LEAK_CATS + C.CATEGORIES_REGRESSION)
+        rl = run_corpus(lim, pipe, T.LEAK_CATS + C.CATEGORIES_REGRESSION)
+    print(f"\nREGRESSION set (Run 10 leak read; ADR 0012 to 0014): fixed kinds, messages={rf['messages']} ok={rf['ok']}"
+          f" quarantined={rf['quarantined']}")
+    print("  quarantined messages by reason:", dict(sorted(rf["reason_msgs"].items())) or "none")
+    print(f"  released with a planted name fragment: {rf['ok_name_msgs']}; with planted initials: {rf['ok_initials_msgs']};"
+          " with a planted strip item verbatim:", dict(rf["ok_leaks"]) or "none")
+    print(f"LIMITATION kinds (A2, un-cued patient names): messages={rl['messages']} ok={rl['ok']} quarantined={rl['quarantined']}")
+    print("  quarantined messages by reason:", dict(sorted(rl["reason_msgs"].items())) or "none")
+    print(f"  released with a lowercase name: {dict(rl['ok_name_kinds']) or 0}; with initials: {dict(rl['ok_initials_kinds']) or 0}")
+
 
 
 if __name__ == "__main__":

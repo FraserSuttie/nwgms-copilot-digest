@@ -159,15 +159,16 @@ def report_regression(use_ner: bool, use_gate: bool = False) -> str:
     """Regression set from the session 11 leak read (ADR 0012 to 0014), scored like the main table. Counts only."""
     msgs = C.regression()
     per, adv, _, _, _, extra = evaluate(msgs, use_ner, use_gate, C.regression_directory_markdown())
-    out = [f"REGRESSION set (Run 10 leak read; ADR 0012 to 0014): messages={len(msgs)} seed={C.REGRESSION_SEED}",
+    out = [f"REGRESSION set (Run 10 leak read; ADR 0012 to 0014): messages={len(msgs)} seed={C.REGRESSION_SEED}"
+           f" (patient_name rows are the A2 LIMITATION kinds: un-cued lowercase names and initials)",
            f"{'category':28}{'planted':>8}{'full':>7}{'partial':>9}{'missed':>8}{'right-code':>12}{'recall%':>9}"]
-    for cat in C.CATEGORIES_REGRESSION + ["external_contact_name"]:
+    for cat in C.CATEGORIES_REGRESSION + ["external_contact_name", "patient_name"]:
         c = per.get(cat, Counter())
         n = c["planted"]
         out.append(f"{cat:28}{n:8d}{c['full']:7d}{c['partial']:9d}{c['missed']:8d}{c['correct']:12d}"
                    f"{(100 * c['full'] / n if n else 0):9.1f}")
     out += [f"{'kind':28}{'planted':>8}{'full':>7}{'partial':>9}{'missed':>8}"]
-    for k in C.REGRESSION_KINDS:
+    for k in C.REGRESSION_KINDS + C.LIMITATION_KINDS:
         c = adv[k]
         out.append(f"{k:28}{c['planted']:8d}{c['full']:7d}{c['partial']:9d}{c['missed']:8d}")
     if use_gate:
