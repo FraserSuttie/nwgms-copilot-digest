@@ -84,6 +84,15 @@ class People:
         for t in {parts[0], parts[-1]}:
             self.tokens.setdefault(t, set()).add(n)
 
+    def add_alias(self, variant: str, canonical: str, source: str) -> None:
+        """A nickname form ('Cath Ramsden') of a name already added: same person, its first token becomes a name token."""
+        n, c = norm(variant), norm(canonical)
+        if c not in self.full or len(n.split()) < 2 or n == c:
+            return
+        self.full.setdefault(n, source)
+        self.canon[n] = c
+        self.tokens.setdefault(n.split()[0], set()).add(c)
+
     def with_header(self, header_people, trusted=P.ALLOWED_EMAIL_DOMAINS) -> "People":
         """Copy of self plus header participants whose address is on a Trust domain."""
         out = self.copy()
@@ -95,16 +104,38 @@ class People:
         return out
 
 
+INTERNAL_ORG = re.compile(r"\s*(?:NWGMS|MFT)\b", re.I)
+_BRACKETED = re.compile(r"\s*[(\[][^)\]]*[)\]]")
+
+
 def parse_directory(markdown: str) -> People:
-    """Read the People-Directory table (Surname | Full name | ...). Only the Full name column is used."""
+    """Read the People-Directory table (Surname | Full name | Role | Organisation | ...).
+
+    ADR 0014: only rows whose Organisation starts with NWGMS or MFT are staff; other trusts, suppliers and TBC rows
+    are left out, so their names are treated as unknown. A table with no Organisation column is read as all staff
+    (older format). A round-bracketed nickname ('Catherine (Cath) Ramsden') becomes a name token for that row;
+    square-bracketed notes ('[surname unknown]') are dropped."""
     ppl = People()
+    org_col = None
     for line in markdown.splitlines():
         if not line.lstrip().startswith("|"):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) < 2 or cells[0].lower() == "surname" or set(cells[0]) <= set("-: "):
+        if len(cells) < 2 or set(cells[0]) <= set("-: "):
             continue
-        ppl.add(cells[1], "DIR")
+        if cells[0].lower() == "surname":
+            low = [c.lower() for c in cells]
+            org_col = low.index("organisation") if "organisation" in low else None
+            continue
+        if org_col is not None and not INTERNAL_ORG.match(cells[org_col] if org_col < len(cells) else ""):
+            continue
+        full = cells[1]
+        base = _BRACKETED.sub("", full)
+        ppl.add(base, "DIR")
+        last = norm(base).split()[-1:] or [""]
+        for nick in re.findall(r"\(([^)]*)\)", full):
+            if len(nick.split()) == 1:
+                ppl.add_alias(f"{nick} {last[0]}", base, "DIR")
     return ppl
 
 
