@@ -38,7 +38,7 @@ import keystore as K  # noqa: E402
 import namegate as G  # noqa: E402
 import ner as N  # noqa: E402
 
-STRIPPER_VERSION = "0.8.2-cred"
+STRIPPER_VERSION = "0.8.3-numdate"
 
 FIXED = {
     "NHS_NUMBER": "[PT-NHS]", "TEN_DIGITS": "[PT-NUM]", "DIGITS_AS_WORDS": "[PT-NUM]", "PATIENT_NUMBER": "[PT-NUM]",

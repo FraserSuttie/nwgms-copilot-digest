@@ -57,6 +57,17 @@ _CRED_QUOTED = re.compile(_CRED_CUE + r"[^\n\"\u201c\u201d]{0,20}?(?:[\"\u201c]|
                           r"([^\"\u201c\u201d'\u2018\u2019\n]{1,40})[\"\u201d'\u2019]", re.I)
 _CRED_PLAIN = re.compile(_CRED_CUE + r"[ \t]*(?::|=|-|\bis\b)[ \t]*([^\s\"\u201c\u201d]+)", re.I)
 
+# Order-style numbers (ADR 0013): 3 to 12 digits, optional 1 to 3 letter prefix, only after a cue word. A bare short
+# number is never matched here (times, years, alert IDs and test codes stay).
+_ORDER_NO = re.compile(
+    r"\b(?:order(?:\s*(?:number|num|no\.?|#|id))?|orderid|request\s+(?:number|no\.?|id)|accession\s+(?:number|no\.?)"
+    r"|episode\s+(?:number|no\.?)|encounter\s+(?:id|number|no\.?)|lab\s+(?:number|no\.?))"
+    r"[ \t]*[:#=]?[ \t]*([A-Za-z]{0,3}\d{3,12})(?!\d)(?!\.\d)", re.I)
+
+# Malformed dates (ADR 0013): day, month, year with a doubled separator ("//", " /", "-/"). Each separator must hold
+# a "/", "-" or "."; at least one must be two characters. Well-formed dates are left to validator/patterns.py.
+_DATE_LOOSE = re.compile(r"(?<!\d)(?<!\d\.)(\d{1,2})([/\-. ]{1,2})(\d{1,2})([/\-. ]{1,2})(\d{4}|\d{2})(?!\d)(?!\.\d)")
+
 _WORD_DIGIT = {w: str(i) for i, w in enumerate(["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"])}
 _WORD_DIGIT["oh"] = "0"
 
@@ -127,6 +138,9 @@ def detect(text: str) -> tuple[str, list[Hit]]:
     for m in _DOB_PARTIAL.finditer(text):
         _claim(hits, Hit("DOB_PARTIAL", "fail", m.start(1), m.end(1)))
 
+    for m in _ORDER_NO.finditer(text):
+        _claim(hits, Hit("PATIENT_NUMBER", "fail", m.start(1), m.end(1)))
+
     for m in _MRN_8.finditer(text):
         _claim(hits, Hit("MRN", "fail", m.start(), m.end()))
 
@@ -136,5 +150,10 @@ def detect(text: str) -> tuple[str, list[Hit]]:
 
     for h in P.scan_text(text):
         _claim(hits, h)
+
+    for m in _DATE_LOOSE.finditer(text):
+        seps = (m.group(2), m.group(4))
+        if all(s.strip() for s in seps) and any(len(s) == 2 for s in seps):
+            _claim(hits, Hit("DATE", "fail", m.start(), m.end()))
 
     return raw, sorted(hits, key=lambda h: h.start)

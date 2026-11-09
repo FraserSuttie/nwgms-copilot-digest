@@ -7,7 +7,7 @@ Synthetic data only. Nothing here reads real mail.
 | Path | What |
 |---|---|
 | `corpus/generate.py`, `corpus/vocab.py` | Labelled synthetic corpus (output git-ignored, reproducible from seed) |
-| `detectors.py` | Deterministic detectors; reuses `validator/patterns.py`; credential cue (ADR 0012). Returns code and position only |
+| `detectors.py` | Deterministic detectors; reuses `validator/patterns.py`; credential cue (ADR 0012); cued order numbers and malformed dates (ADR 0013). Returns code and position only |
 | `ner.py` | Optional Presidio + spaCy layer; degrades to a stub that says so |
 | `namegate.py` | Name gate: directory, header participants (Trust display names normalised, both name orders, shared mailboxes exact-only: ADR 0009), bare-name position rules, `[NAME-n]` numbering, local state |
 | `review.py` | Local review-queue CLI for unknown names (run by Fraser only; state outside the repo and OneDrive) |
