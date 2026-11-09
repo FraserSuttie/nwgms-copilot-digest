@@ -151,7 +151,8 @@ def corpus_vocab() -> frozenset:
     return frozenset(words)
 
 
-def run_corpus(msgs, pipe: Pipeline) -> dict:
+def run_corpus(msgs, pipe: Pipeline, leak_cats=None) -> dict:
+    leak_cats = T.LEAK_CATS if leak_cats is None else leak_cats
     s = {"messages": len(msgs), "ok": 0, "quarantined": 0, "reasons": Counter(), "reason_msgs": Counter(),
          "ok_name_msgs": 0, "ok_name_kinds": Counter(), "q_clean": 0, "q_leaky": 0, "leaky": 0, "ok_leaks": Counter(),
          "planted": Counter()}
@@ -165,7 +166,7 @@ def run_corpus(msgs, pipe: Pipeline) -> dict:
                 s["ok_name_msgs"] += 1
                 s["ok_name_kinds"].update(sur)
             for l in m["labels"]:
-                if l["category"] in T.LEAK_CATS and l["action"] == "strip":
+                if l["category"] in leak_cats and l["action"] == "strip":
                     planted = unicodedata.normalize("NFKC", m["fields"][l["field"]][l["start"]:l["end"]])
                     if planted.strip() and planted in unicodedata.normalize("NFKC", o.fields[l["field"]]):
                         s["ok_leaks"][l["category"]] += 1
@@ -198,6 +199,17 @@ def main() -> None:
     print("reason-code counts:", dict(sorted(s["reasons"].items())))
     print(f"\nEND TO END, released (ok) messages with a planted name fragment still present: {s['ok_name_msgs']} of {s['ok']}  by kind: {dict(s['ok_name_kinds'])}")
     print("released messages with a planted strip item still present verbatim:", dict(s["ok_leaks"]) or "none")
+    # Regression set (session 11 leak read; ADR 0012 to 0014): own seed, own throwaway stores, Directory with externals.
+    reg = C.regression()
+    with tempfile.TemporaryDirectory() as td:
+        st = K.KeyStore(Path(td) / "ks", K.TestOnlyProtector())
+        q = Q.Quarantine(Path(td) / "ks", K.TestOnlyProtector())
+        tr = T.Transformer(st, G.parse_directory(C.regression_directory_markdown()), use_ner=a.ner, year=2026)
+        r = run_corpus(reg, Pipeline(tr, q, vocab=corpus_vocab()), T.LEAK_CATS + C.CATEGORIES_REGRESSION)
+    print(f"\nREGRESSION set (Run 10 leak read; ADR 0012 to 0014): messages={r['messages']} ok={r['ok']} quarantined={r['quarantined']}")
+    print("  quarantined messages by reason:", dict(sorted(r["reason_msgs"].items())) or "none")
+    print(f"  released with a planted name fragment: {r['ok_name_msgs']}; with a planted strip item verbatim:",
+          dict(r["ok_leaks"]) or "none")
 
 
 if __name__ == "__main__":

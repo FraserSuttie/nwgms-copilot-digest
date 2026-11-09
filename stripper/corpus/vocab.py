@@ -25,6 +25,13 @@ CONFIG_VOCAB = ["BRCA1", "BRCA2", "TP53", "JAK2", "CFTR", "MLH1", "Cancer Panel 
 DIAGNOSES = ["breast cancer", "ovarian cancer", "acute myeloid leukaemia", "cystic fibrosis", "Lynch syndrome", "polycythaemia vera"]
 RESULT_WORDS = ["positive", "not detected", "detected", "pathogenic", "likely pathogenic", "carrier"]
 
+# Regression set (Test Plan Run 10 leak read; ADR 0012 to 0014). External people listed in the Directory under an
+# organisation that is not NWGMS or MFT. Invented; the bracketed nickname mirrors the old vocab-file nickname case.
+EXT_DIRECTORY = [("Cosima Pendleford", "Synthetic Supplier Ltd"), ("Alaric Brightwater", "Another Synthetic NHS Trust"),
+                 ("Theodora (Thea) Crossthwaite", "TBC")]
+# Syllables for invented credentials and usernames (assembled at runtime).
+CRED_SYLLABLES = ["zor", "quim", "plin", "glarn", "wib", "trel", "vosk", "mern", "brix", "dov"]
+
 BENIGN = [
     "Thanks for the positive feedback on the release notes.",
     "The meeting is booked for 30 October 2026 in the usual room.",

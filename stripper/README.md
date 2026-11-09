@@ -6,7 +6,7 @@ Synthetic data only. Nothing here reads real mail.
 
 | Path | What |
 |---|---|
-| `corpus/generate.py`, `corpus/vocab.py` | Labelled synthetic corpus (output git-ignored, reproducible from seed) |
+| `corpus/generate.py`, `corpus/vocab.py` | Labelled synthetic corpus (output git-ignored, reproducible from seed); separate regression set from the session 11 leak read (`regression()`, own seed, Directory with external rows): credentials, cued order numbers, doubled-separator dates, external people in the Directory |
 | `detectors.py` | Deterministic detectors; reuses `validator/patterns.py`; credential cue (ADR 0012); cued order numbers and malformed dates (ADR 0013). Returns code and position only |
 | `ner.py` | Optional Presidio + spaCy layer; degrades to a stub that says so |
 | `namegate.py` | Name gate: directory (NWGMS/MFT rows only, bracketed nicknames: ADR 0014), header participants (Trust display names normalised, both name orders, shared mailboxes exact-only: ADR 0009), bare-name position rules, `[NAME-n]` numbering, local state |
@@ -24,7 +24,7 @@ Synthetic data only. Nothing here reads real mail.
 | `capsvocab.py` | Local vocabulary builder (Fraser only, terminal only): ranked words, flags, allow one at a time, appends to a local `--vocab` file; `--phrases F` for adjacent word pairs; `--list` writes nothing |
 | `decode.py` | Local decode CLI (run by Fraser only): tokens or `--thread` lookup table, terminal only, audit line, never message text (ADR 0007) |
 | `corpus/rawdrop.py` | Synthetic raw-drop generator and per-block scorer (counts only) |
-| `recall.py` | Per-category recall report, counts only (`--ner`, `--gate`) |
+| `recall.py` | Per-category recall report, counts only (`--ner`, `--gate`); regression set table after the main one (`pipeline.py` prints its pipeline counts too) |
 
 Run from the repo root:
 

@@ -46,6 +46,9 @@ COMPAT = {
     "patient_name": {"NER_PERSON", "NAME"},
     "external_contact_name": {"NER_PERSON", "NAME"},
     "staff_name_nondirectory": {"NER_PERSON", "NAME"},
+    "credential": {"CREDENTIAL"},
+    "order_number": {"PATIENT_NUMBER"},
+    "date_malformed": {"DATE"},
 }
 
 
@@ -56,14 +59,14 @@ def covered_fraction(text: str, start: int, end: int, hits) -> float:
     return sum(1 for i in idx if any(h.start <= i < h.end for h in hits)) / len(idx)
 
 
-def evaluate(msgs, use_ner: bool, use_gate: bool = False):
+def evaluate(msgs, use_ner: bool, use_gate: bool = False, directory: str | None = None):
     per = defaultdict(Counter)       # category -> counters
     adv = defaultdict(Counter)       # adversarial kind -> counters
     unlabelled = Counter()           # detector code -> hits overlapping no label
     sources = Counter()
     conflicts = 0
     extra = {"gate_reasons": Counter(), "gate_leaks": 0, "review": Counter()}
-    base_people = G.parse_directory(C.directory_markdown())
+    base_people = G.parse_directory(directory or C.directory_markdown())
     # Attachment filenames are scored through the transform path (allowlist label), not by detection (ADR 0005).
     tmp = tempfile.TemporaryDirectory()
     att_tr = T.Transformer(K.KeyStore(Path(tmp.name) / "ks", K.TestOnlyProtector()), base_people)
@@ -152,6 +155,28 @@ def report(msgs, use_ner: bool, use_gate: bool = False) -> str:
     return "\n".join(out)
 
 
+def report_regression(use_ner: bool, use_gate: bool = False) -> str:
+    """Regression set from the session 11 leak read (ADR 0012 to 0014), scored like the main table. Counts only."""
+    msgs = C.regression()
+    per, adv, _, _, _, extra = evaluate(msgs, use_ner, use_gate, C.regression_directory_markdown())
+    out = [f"REGRESSION set (Run 10 leak read; ADR 0012 to 0014): messages={len(msgs)} seed={C.REGRESSION_SEED}",
+           f"{'category':28}{'planted':>8}{'full':>7}{'partial':>9}{'missed':>8}{'right-code':>12}{'recall%':>9}"]
+    for cat in C.CATEGORIES_REGRESSION + ["external_contact_name"]:
+        c = per.get(cat, Counter())
+        n = c["planted"]
+        out.append(f"{cat:28}{n:8d}{c['full']:7d}{c['partial']:9d}{c['missed']:8d}{c['correct']:12d}"
+                   f"{(100 * c['full'] / n if n else 0):9.1f}")
+    out += [f"{'kind':28}{'planted':>8}{'full':>7}{'partial':>9}{'missed':>8}"]
+    for k in C.REGRESSION_KINDS:
+        c = adv[k]
+        out.append(f"{k:28}{c['planted']:8d}{c['full']:7d}{c['partial']:9d}{c['missed']:8d}")
+    if use_gate:
+        out.append(f"NAME GATE (regression): leaks = {extra['gate_leaks']}")
+    else:
+        out.append("ext_in_directory needs --ner --gate: without NER an unknown name is never a candidate (the density check backs it up)")
+    return "\n".join(out)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=1200)
@@ -163,6 +188,7 @@ def main() -> None:
     if a.ner:
         N.load(a.model)
     print(report(C.generate(a.n, a.seed), a.ner, a.gate))
+    print("\n" + report_regression(a.ner, a.gate))
 
 
 if __name__ == "__main__":

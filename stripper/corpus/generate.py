@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,10 @@ CATEGORIES_STRIP = [
     "attachment_filename", "clinical_patient_level", "url_personal",
 ]
 CATEGORIES_KEEP = ["staff_name_directory", "staff_name_header", "config_vocab", "trust_email"]
+# Regression set only (session 11 leak read; ADR 0012 to 0014). Kept out of generate() so the main corpus is unchanged.
+CATEGORIES_REGRESSION = ["credential", "order_number", "date_malformed"]
+REGRESSION_KINDS = ["cred_quoted", "cred_labelled", "order_cued", "date_double_sep", "ext_in_directory"]
+REGRESSION_SEED = 20261109
 
 
 @dataclass
@@ -139,6 +144,27 @@ class Gen:
     def ext_email(self, name: str) -> str:
         f, l = name.lower().replace("-", "").split()
         return f"{f}.{l}" + "@" + self.r.choice(V.EMAIL_DOMAINS)
+
+    def secret(self) -> str:
+        r = self.r
+        s = "".join(r.choice(V.CRED_SYLLABLES) for _ in range(r.randint(2, 3)))
+        return s + (f"{r.randint(10, 99)}" if r.random() < 0.7 else "")
+
+    def username(self) -> str:
+        r = self.r
+        return r.choice(V.CRED_SYLLABLES) + "." + "".join(r.choice(V.CRED_SYLLABLES) for _ in range(2))
+
+    def order_no(self) -> str:
+        r = self.r
+        pre = "".join(r.choice("BCEFHKMT") for _ in range(r.randint(0, 2)))
+        return pre + "".join(str(r.randint(0, 9)) for _ in range(r.randint(4, 8)))
+
+    def bad_date(self) -> str:
+        """Day, month, year with a doubled separator (ADR 0013); never a well-formed date."""
+        r = self.r
+        s1, s2 = r.choice([("//", "/"), ("/", "//"), ("-/", "/"), (" /", "/"), ("..", "."), ("--", "-")])
+        y = f"{r.randint(0, 99):02d}" if r.random() < 0.5 else f"{r.randint(1940, 2025)}"
+        return f"{r.randint(1, 28):02d}{s1}{r.randint(1, 12):02d}{s2}{y}"
 
     def variant(self) -> str:
         n = self.r.randint(100, 9999)
@@ -344,6 +370,68 @@ def directory_markdown() -> str:
         note = "two with this surname" if full.endswith("Ridgeway") else ""
         rows.append(f"| {full.split()[-1]} | {full} | Synthetic role | NWGMS | {note} |")
     return "\n".join(rows) + "\n"
+
+
+def regression_directory_markdown() -> str:
+    """directory_markdown() plus external rows (another trust, a supplier, TBC). parse_directory leaves them out."""
+    rows = [f"| {full.split()[-1]} | {full} | Synthetic role | {org} | external (regression) |" for full, org in V.EXT_DIRECTORY]
+    return directory_markdown() + "\n".join(rows) + "\n"
+
+
+def build_regression(g: Gen, i: int, kind: str, j: int) -> dict:
+    """One message per call for the regression set; `j` rotates the phrasing variants of each kind."""
+    r = g.r
+    sender, to = r.sample(V.STAFF_DIR, 2)
+    people = [[p, _addr(p, r)] for p in (sender, to)]
+    b = Builder()
+    b.add("Hi ").plant("staff_name_directory", to.split()[0]).add(",\n\n")
+    if kind == "cred_quoted":
+        v = j % 3
+        if v == 0:
+            b.add("I’ve unlocked the account and given you the temporary password “").plant("credential", g.secret(), kind).add("”.")
+        elif v == 1:
+            b.add('Your new password "').plant("credential", g.secret(), kind).add('" works until Friday.')
+        else:
+            b.add("I set the passcode to '").plant("credential", g.secret(), kind).add("' for the account.")
+    elif kind == "cred_labelled":
+        v = j % 3
+        if v == 0:
+            b.add("Username: ").plant("credential", g.username(), kind).add("\nPassword: ").plant("credential", g.secret(), kind)
+        elif v == 1:
+            b.add("For now the password is ").plant("credential", g.secret(), kind).add(", please change it.")
+        else:
+            b.add("PIN - ").plant("credential", f"{r.randint(1000, 9999)}", kind).add(" and login id = ").plant("credential", g.username(), kind)
+    elif kind == "order_cued":
+        v = j % 4
+        lead, tail = [("Can you chase order number ", "? It has not arrived."), ("Order #", " was cancelled in error."),
+                      ("The accession no. ", " is missing from the list."), ("Lab no: ", " needs relabelling.")][v]
+        b.add(lead).plant("order_number", g.order_no(), kind).add(tail)
+    elif kind == "date_double_sep":
+        lead, tail = [("The letter is dated ", "."), ("DOB ", " on the form."), ("Sample received ", ", see notes.")][j % 3]
+        b.add(lead).plant("date_malformed", g.bad_date(), kind).add(tail)
+    else:  # ext_in_directory
+        full, _ = V.EXT_DIRECTORY[j % len(V.EXT_DIRECTORY)]
+        plain = re.sub(r"\s*\([^)]*\)", "", full)
+        nick = re.findall(r"\(([^)]*)\)", full)
+        name = f"{nick[0]} {plain.split()[-1]}" if nick and j % 2 else plain
+        if j % 2:
+            b.plant("external_contact_name", name, kind).add(" has asked for an update on the file.")
+        else:
+            b.add("Spoke to ").plant("external_contact_name", name, kind).add(" earlier; the file is on its way.")
+    b.add("\n\nThanks,\n").plant("staff_name_directory", sender).add("\n")
+    return {"id": f"reg-{i:05d}", "source": "email", "fields": {"body": b.text}, "labels": b.labels,
+            "meta": {"has_ref": False, "has_clin": False, "conflict": False, "attachments": [], "header_people": people}}
+
+
+def regression(n_per_kind: int = 20, seed: int = REGRESSION_SEED) -> list[dict]:
+    """Regression set from the session 11 leak read (ADR 0012 to 0014). Own seed and RNG, so generate() is unchanged.
+    Run it with regression_directory_markdown(), which lists the external people."""
+    g = Gen(seed)
+    out = []
+    for kind in REGRESSION_KINDS:
+        for j in range(n_per_kind):
+            out.append(build_regression(g, len(out), kind, j))
+    return out
 
 
 def main() -> None:
