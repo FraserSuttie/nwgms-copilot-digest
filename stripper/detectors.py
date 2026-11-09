@@ -94,9 +94,11 @@ def detect(text: str) -> tuple[str, list[Hit]]:
     # Credentials claim first: a password made of digits is a secret, not an MRN or phone number.
     for rx in (_CRED_QUOTED, _CRED_PLAIN):
         for m in rx.finditer(text):
-            end = m.start(1) + len(m.group(1).rstrip(".,;:!?)"))
-            if end > m.start(1):
-                _claim(hits, Hit("CREDENTIAL", "fail", m.start(1), end))
+            v = m.group(1)
+            start = m.start(1) + len(v) - len(v.lstrip())
+            end = m.start(1) + len(v.rstrip(" \t.,;:!?)"))
+            if end > start:  # whitespace only: a blanked [CRED] in the residual scan, not a credential (0.8.5)
+                _claim(hits, Hit("CREDENTIAL", "fail", start, end))
 
     # Phones claim next: a 10-digit run after +44 is a phone number, not an NHS number.
     for h in P.scan_text(text):

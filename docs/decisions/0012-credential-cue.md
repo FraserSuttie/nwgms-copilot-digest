@@ -26,5 +26,8 @@ CLAUDE.md section 3).
 - Not covered: a credential with no cue word, or a cue more than 20 characters before the quote. The residual scan
   and the leak read remain the backstop.
 - A placeholder in the output says a credential was present; it does not say whose.
+- Amended 9 Nov 2026 (0.8.5-credfix): a value that is only whitespace is ignored. The residual scan blanks `[CRED]` to
+  a space, and the quoted rule read `password " "` as a credential, quarantining 2 real messages (HIT_CREDENTIAL)
+  in the v080c rerun. Regression test runs the residual scan over transformed output.
 - Synthetic corpus unchanged without NER (472 released, 728 quarantined, 0 planted names released). NER run on the
   laptop to confirm 1,035 / 165 / 0.

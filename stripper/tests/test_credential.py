@@ -72,6 +72,17 @@ class TransformTests(unittest.TestCase):
     def test_placeholder_is_approved(self):
         self.assertTrue(T.APPROVED_RE.fullmatch("[CRED]"))
 
+    def test_residual_scan_does_not_flag_its_own_placeholder(self):
+        # 0.8.5: the residual scan blanks [CRED] to a space; a quoted space is not a credential.
+        for s in ("given you the temporary password \u201czorbquim41\u201d.", "password 'qwerble9' set",
+                  'new password "Plinth-77x" for now', "Username: qwib.zarnell\nThanks"):
+            out = self.tr.text(s).text
+            _, hits = D.detect(T.blank_approved(out))
+            self.assertEqual([h.code for h in hits if h.code == "CREDENTIAL"], [], s)
+
+    def test_whitespace_only_quote_is_not_a_credential(self):
+        self.assertEqual(creds('the password " " was blank'), [])
+
 
 if __name__ == "__main__":
     unittest.main()
