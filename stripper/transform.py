@@ -9,7 +9,7 @@ Turns detector hits and name-gate decisions into placeholders and tokens. No AI,
     names                 [NAME-n] per message, one-way; staff pass through via the name gate
     clinical wording      [CLIN], with three sentence-drop escalations (multiple hits, next to an
                           identifier, result-style wording)
-    other                 [DATE] [GMC-ID] [URL] [LOC]
+    other                 [DATE] [GMC-ID] [URL] [LOC] [CRED]
 
 Hits with no treatment (review-severity codes and unknown iGene prefixes) are left in the text
 and counted in `left`: the residual scan (next slice) must fail closed on them.
@@ -38,12 +38,13 @@ import keystore as K  # noqa: E402
 import namegate as G  # noqa: E402
 import ner as N  # noqa: E402
 
-STRIPPER_VERSION = "0.8.1-caps"
+STRIPPER_VERSION = "0.8.2-cred"
 
 FIXED = {
     "NHS_NUMBER": "[PT-NHS]", "TEN_DIGITS": "[PT-NUM]", "DIGITS_AS_WORDS": "[PT-NUM]", "PATIENT_NUMBER": "[PT-NUM]",
     "LONG_DIGITS": "[PT-NUM]", "PHONE_UK": "[PT-PHONE]", "POSTCODE": "[PT-ADDR]", "ADDRESS_STREET": "[PT-ADDR]",
     "MRN": "[PT-MRN]", "DOB_PARTIAL": "[PT-DOB]", "GMC_ID": "[GMC-ID]", "URL_PERSONAL": "[URL]", "NER_LOCATION": "[LOC]",
+    "CREDENTIAL": "[CRED]",
 }
 DATE_CODES = {"DATE"}  # DATE_DOTTED / MONTH_YEAR are review-severity (may be version strings): left for the residual scan
 CLIN_CODES = {"CLIN_VARIANT", "CLIN_RESULT", "CLIN_AGE", "CLIN_DX"}
@@ -55,7 +56,7 @@ DOB_CUE_DISTANCE = 40
 _C = K.ALPHABET
 APPROVED_RE = re.compile(
     rf"(?:REF|SMP|WS|QC|CASE)-[{_C}]{{8,16}}\b|CONTACT-\d{{4,}}|ATT-\d+"
-    r"|\[(?:PT-(?:NHS|NUM|PHONE|ADDR|MRN|DOB|EMAIL)|GMC-ID|DATE|LOC|URL|CLIN|NAME-\d+)\]")
+    r"|\[(?:PT-(?:NHS|NUM|PHONE|ADDR|MRN|DOB|EMAIL)|GMC-ID|CRED|DATE|LOC|URL|CLIN|NAME-\d+)\]")
 
 KEEP_WORDS = frozenset("""report form agenda minutes summary notes request template update spec specification guide sop draft review
 timetable schedule presentation slides screenshot image export log config configuration interface mapping test plan checklist

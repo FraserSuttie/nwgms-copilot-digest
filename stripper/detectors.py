@@ -48,6 +48,15 @@ _DX_TERMS = ("breast cancer", "ovarian cancer", "acute myeloid leukaemia", "leuk
              "lynch syndrome", "polycythaemia vera", "huntington")
 _DX = re.compile(r"\b(?:" + "|".join(re.escape(t) for t in _DX_TERMS) + r")\b", re.I)
 
+# Credentials (ADR 0012): the value after a password or username cue. Quoted values (double quotes, or a
+# single quote after a space or separator) up to 40 characters; otherwise one token after ":", "=", "-" or "is".
+# Fail-safe: an ordinary word after "password is" is also replaced.
+_CRED_CUE = (r"\b(?:(?:temporary|temp|new|one[- ]time|initial)\s+)?"
+             r"(?:password|passwd|pwd|passcode|passphrase|pin|user\s?name|user\s?id|log[- ]?in(?:\s+id)?)\b")
+_CRED_QUOTED = re.compile(_CRED_CUE + r"[^\n\"\u201c\u201d]{0,20}?(?:[\"\u201c]|(?<=[\s:=])['\u2018])"
+                          r"([^\"\u201c\u201d'\u2018\u2019\n]{1,40})[\"\u201d'\u2019]", re.I)
+_CRED_PLAIN = re.compile(_CRED_CUE + r"[ \t]*(?::|=|-|\bis\b)[ \t]*([^\s\"\u201c\u201d]+)", re.I)
+
 _WORD_DIGIT = {w: str(i) for i, w in enumerate(["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"])}
 _WORD_DIGIT["oh"] = "0"
 
@@ -71,7 +80,14 @@ def detect(text: str) -> tuple[str, list[Hit]]:
     text = raw.replace("_", " ")  # same length; "_" is a word char and would defeat \b in filenames
     hits: list[Hit] = []
 
-    # Phones claim first: a 10-digit run after +44 is a phone number, not an NHS number.
+    # Credentials claim first: a password made of digits is a secret, not an MRN or phone number.
+    for rx in (_CRED_QUOTED, _CRED_PLAIN):
+        for m in rx.finditer(text):
+            end = m.start(1) + len(m.group(1).rstrip(".,;:!?)"))
+            if end > m.start(1):
+                _claim(hits, Hit("CREDENTIAL", "fail", m.start(1), end))
+
+    # Phones claim next: a 10-digit run after +44 is a phone number, not an NHS number.
     for h in P.scan_text(text):
         if h.code == "PHONE_UK":
             _claim(hits, h)
