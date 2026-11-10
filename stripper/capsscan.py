@@ -52,6 +52,7 @@ class Scanned:
     profiles: dict               # section -> Counter (R.PROFILE_KEYS)
     field_totals: list           # unknown-cap count per non-attachment field (the production per-field rule)
     hits: list                   # list[WordHit]
+    policy: dict | None = None   # R.caps_policy counts (draft ADR 0017): tiers, signals, release_a/b; no words
 
     @property
     def total(self) -> int:
@@ -173,7 +174,8 @@ def scan_drop(drop, state, directory_md: str, vocab=frozenset(), ignore_words=fr
                     res.lower_seen.update(_LOWER.findall(t))
                 else:
                     profiles[_SECTION_OF[name]] = R.caps_profile(text, ev.allowed)
-        res.msgs.append(Scanned(thread, ev.reasons, ev.stripped is not None, profiles, totals, hits))
+        pol = R.caps_policy(ev.stripped, ev.allowed, use_ner) if ev.stripped is not None else None
+        res.msgs.append(Scanned(thread, ev.reasons, ev.stripped is not None, profiles, totals, hits, pol))
     return res
 
 

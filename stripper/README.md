@@ -22,6 +22,7 @@ Synthetic data only. Nothing here reads real mail.
 | `capsscan.py` | Read-only scan of a raw drop through `Pipeline.evaluate` for the caps tools; keeps unknown capitalised words in memory only (ADR 0010) |
 | `capsdiag.py` | Count-only DENS_CAPS diagnostic: outcome groups, histogram, release curve by limit, shape and section splits, vocabulary coverage. Prints no word, writes no file |
 | `capsvocab.py` | Local vocabulary builder (Fraser only, terminal only): ranked words, flags, allow one at a time, appends to a local `--vocab` file; `--phrases F` for adjacent word pairs; `--list` writes nothing |
+| `capsclass.py` | Count-only measure of the draft caps classifier (draft ADR 0017): scores each held unknown capitalised word on position, shape and nearby identifiers and reports what policies A and B would release. Prints no word, writes no file; `pipeline.py --caps-policy` gives the synthetic measure |
 | `decode.py` | Local decode CLI (run by Fraser only): tokens or `--thread` lookup table, terminal only, audit line, never message text (ADR 0007) |
 | `corpus/rawdrop.py` | Synthetic raw-drop generator and per-block scorer (counts only) |
 | `recall.py` | Per-category recall report, counts only (`--ner`, `--gate`); regression set table after the main one (`pipeline.py` prints its pipeline counts too, and released initials, which the name-fragment count cannot see) |

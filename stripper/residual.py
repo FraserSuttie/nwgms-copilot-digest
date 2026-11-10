@@ -233,6 +233,116 @@ def caps_profile(text: str, allowed: frozenset, part: str | None = None) -> Coun
     return c
 
 
+
+# ---- caps classifier (draft ADR 0017, diagnostic only) -------------------------------------------------------------
+# Scores each unknown capitalised word on three checks so a held word can be told apart from a likely name:
+#   position (3): SUBJECT (subject line) or TITLE_LINE (Title Case line) is neutral; PROSE is not.
+#   shape (4):    TITLE (Mr/Dr... before), POSSESSIVE, PAIR (next to another unknown word or a [NAME-n]/[PT-...] token),
+#                 ALONE (only word on its line, as in a sign-off), GREETING (after hi/dear/thanks...), HEADER
+#                 (From/To/Cc field), NER (inside an NER person span).
+#   nearby (5):   IDENT (an identifier token in the same sentence: REF/SMP/WS/QC/CASE, [PT-...], [GMC-ID], [CLIN], [CRED]).
+# Tier: HOLD if any shape or nearby signal; else FLAG if the position is neutral; else PROSE. Signals and tiers are
+# fixed strings: nothing here returns or logs a word. Offsets use a same-length blanking, so a hit set can differ from
+# unknown_cap_hits in rare phrase edge cases (diagnostic only).
+CLASS_SHAPE = ("TITLE", "POSSESSIVE", "PAIR", "ALONE", "GREETING", "HEADER", "NER")
+CLASS_SIGNALS = ("SUBJECT", "TITLE_LINE", "PROSE") + CLASS_SHAPE + ("IDENT",)
+CLASS_TIERS = ("FLAG", "PROSE", "HOLD")
+_IDENT_TOKEN = re.compile(r"^(?:(?:REF|SMP|WS|QC|CASE)-|\[(?:PT-|GMC-ID|CLIN|CRED))")
+_PAIR_TOKEN = re.compile(r"^\[(?:NAME-\d+|PT-[A-Z]+)\]$")
+_TITLES = frozenset("mr mrs ms miss mx dr prof professor sir dame".split())
+_GREET = re.compile(r"(?:^|[\s,])(?:hi|hello|hey|dear|morning|afternoon|evening|thanks|thank you|cheers|regards|wishes|ta)"
+                    r"[\s,!.]*$", re.I)
+
+
+def _same_length_blank(text: str) -> tuple[str, list[tuple[int, int, str]]]:
+    tokens = [(m.start(), m.end(), m.group(0)) for m in APPROVED_RE.finditer(text)]
+    return APPROVED_RE.sub(lambda m: " " * len(m.group(0)), text), tokens
+
+
+def classify_caps(text: str, allowed: frozenset, field_name: str = "message", ner_spans=None) -> list[tuple[str, frozenset]]:
+    """(tier, signals) for each unknown capitalised word in one output field. `ner_spans`: (start, end) person spans
+    over the same-length blanked text, or None when NER is off."""
+    t, tokens = _same_length_blank(text)
+    sub_end = t.find("\n\n") if field_name == "message" else -1
+    header = field_name in ("header_from", "header_to", "header_cc")
+    hits = []
+    for m in _CAP.finditer(t):
+        w, lw = m.group(0), m.group(0).lower()
+        if lw in allowed or lw in OPENERS or any(x in allowed for x in lw.split("-")):
+            continue
+        ap = _APOS_BEFORE.search(t, max(0, m.start() - 40), m.start())
+        if ap and f"{_apos(ap.group(1).lower())}'{lw}" in allowed:
+            continue
+        if any(" " in a for a in allowed) and _in_phrase(t, m.start(), m.end(), lw, allowed):
+            continue
+        pre = t[:m.start()].rstrip(" \t")
+        if (not pre or pre[-1] in ".!?:\n\r") and t[m.end():m.end() + 24].lstrip(" \t")[:1].islower():
+            continue
+        hits.append((m.start(), m.end()))
+    starts = {s for s, _ in hits}
+    ends = {e for _, e in hits}
+    out = []
+    for s, e in hits:
+        sig = set()
+        ls, le = _line_bounds(t, s)
+        line = text[ls:le]
+        toks = [w for w in _TOKEN.findall(t[ls:le])]
+        big = [w for w in toks if len(w) >= 3 and w.lower() not in _SMALL]
+        title_line = len(big) >= 2 and all(_TITLE_TOK.match(w) for w in big)
+        if sub_end >= 0 and s < sub_end:
+            sig.add("SUBJECT")
+        elif title_line:
+            sig.add("TITLE_LINE")
+        else:
+            sig.add("PROSE")
+        if header:
+            sig.add("HEADER")
+        before = t[max(ls, s - 12):s]
+        bm = re.search(r"([A-Za-z]+)\.?\s+$", before)
+        if bm and bm.group(1).lower() in _TITLES:
+            sig.add("TITLE")
+        if t[e:e + 2] in ("'s", "’s"):
+            sig.add("POSSESSIVE")
+        left, right = text[ls:s].rstrip(" "), text[e:le].lstrip(" ")
+        if not title_line and ((s - 1 in ends and t[s - 1:s] == " ") or (e + 1 in starts and t[e:e + 1] == " ") \
+                or (left and _PAIR_TOKEN.match(left.split(" ")[-1] or "")) or (right and _PAIR_TOKEN.match(right.split(" ")[0] or ""))):
+            sig.add("PAIR")   # not on a Title Case line, where every word is capitalised anyway
+        if line.strip(" \t,.!") == t[s:e]:
+            sig.add("ALONE")
+        if _GREET.search(t[ls:s]):
+            sig.add("GREETING")
+        if ner_spans and any(a < e and s < b for a, b in ner_spans):
+            sig.add("NER")
+        a0 = max(max(t.rfind(c, 0, s) for c in ".!?") + 1, t.rfind("\n\n", 0, s) + 2, s - 200, 0)   # same sentence,
+        b0 = min([x for x in (t.find(c, e) for c in ".!?") if x >= 0]                              # 200 chars at most
+                 + [x for x in (t.find("\n\n", e),) if x >= 0] + [e + 200, len(t)])
+        if any(a0 <= ts < b0 and _IDENT_TOKEN.match(tok) for ts, _, tok in tokens):
+            sig.add("IDENT")
+        tier = "HOLD" if sig & (set(CLASS_SHAPE) | {"IDENT"}) else "FLAG" if sig & {"SUBJECT", "TITLE_LINE"} else "PROSE"
+        out.append((tier, frozenset(sig)))
+    return out
+
+
+def caps_policy(fields: dict, allowed: frozenset, use_ner: bool = False) -> dict:
+    """Message-level summary over the non-attachment output fields: tier and signal counts, and whether each draft policy
+    would release it (when DENS_CAPS is its only reason). A: every word is FLAG. B: no word is HOLD. Counts only."""
+    tiers, signals, hold_signals, n = Counter(), Counter(), Counter(), 0
+    for name, text in fields.items():
+        if name.startswith("attachment_"):
+            continue
+        spans = None
+        if use_ner:
+            t, _ = _same_length_blank(text)
+            spans = [(h.start, h.end) for h in N.detect_ner(t) if h.code == "NER_PERSON"]
+        for tier, sig in classify_caps(text, allowed, name, spans):
+            n += 1
+            tiers[tier] += 1
+            signals.update(sig)
+            if tier == "HOLD":
+                hold_signals.update(sig & (set(CLASS_SHAPE) | {"IDENT"}))
+    return {"words": n, "tiers": tiers, "signals": signals, "hold_signals": hold_signals,
+            "release_a": n > 0 and tiers["FLAG"] == n, "release_b": n > 0 and tiers["HOLD"] == 0}
+
 def density(text: str, allowed: frozenset, limits: Limits = Limits(), caps: bool = True) -> Counter:
     """`caps=False` leaves DENS_CAPS to the caller (the pipeline counts the message total when the limit is above 1)."""
     r = Counter()

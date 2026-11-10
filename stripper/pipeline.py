@@ -194,12 +194,45 @@ def run_corpus(msgs, pipe: Pipeline, leak_cats=None) -> dict:
     return s
 
 
+def caps_policy_corpus(msgs, pipe: Pipeline) -> dict:
+    """Draft ADR 0017 measure (no writes): messages held for DENS_CAPS only, and what policies A and B would release,
+    with planted names or initials still present in those releases. Counts only."""
+    s = {"caps_only": 0, "a": 0, "b": 0, "a_names": Counter(), "b_names": Counter(), "a_msgs": 0, "b_msgs": 0,
+         "tiers": Counter(), "signals": Counter()}
+    for m in msgs:
+        ev = pipe.evaluate(m["fields"], m["meta"].get("header_people", []))
+        if ev.stripped is None or set(ev.reasons) != {"DENS_CAPS"}:
+            continue
+        s["caps_only"] += 1
+        pol = R.caps_policy(ev.stripped, ev.allowed, pipe.tr.use_ner)
+        s["tiers"].update(pol["tiers"])
+        s["signals"].update(pol["signals"])
+        leaked = name_fragments_surviving(m, ev.stripped) + initials_surviving(m, ev.stripped)
+        for key in ("a", "b"):
+            if pol["release_" + key]:
+                s[key] += 1
+                if leaked:
+                    s[key + "_msgs"] += 1
+                    s[key + "_names"].update(leaked)
+    return s
+
+
+def print_caps_policy(label: str, s: dict) -> None:
+    print(f"{label}: held for DENS_CAPS only {s['caps_only']}; word tiers {dict(sorted(s['tiers'].items()))}")
+    print(f"  policy A (all words FLAG) would release {s['a']}, with a planted name or initials: {s['a_msgs']} "
+          f"{dict(s['a_names']) or ''}")
+    print(f"  policy B (no word HOLD) would release {s['b']}, with a planted name or initials: {s['b_msgs']} "
+          f"{dict(s['b_names']) or ''}")
+    print("  signals:", dict(sorted(s["signals"].items())))
+
+
 def main() -> None:
     import generate as C
     ap = argparse.ArgumentParser(description="Synthetic corpus through the full pipeline (counts only, throwaway stores)")
     ap.add_argument("--n", type=int, default=1200)
     ap.add_argument("--seed", type=int, default=20261027)
     ap.add_argument("--ner", action="store_true")
+    ap.add_argument("--caps-policy", action="store_true", help="draft ADR 0017 classifier measure (no behaviour change)")
     a = ap.parse_args()
     if a.ner:
         N.load()
@@ -208,7 +241,9 @@ def main() -> None:
         st = K.KeyStore(Path(td) / "ks", K.TestOnlyProtector())
         q = Q.Quarantine(Path(td) / "ks", K.TestOnlyProtector())
         tr = T.Transformer(st, G.parse_directory(C.directory_markdown()), use_ner=a.ner, year=2026)
-        s = run_corpus(msgs, Pipeline(tr, q, vocab=corpus_vocab()))
+        pipe = Pipeline(tr, q, vocab=corpus_vocab())
+        s = run_corpus(msgs, pipe)
+        cp = caps_policy_corpus(msgs, pipe) if a.caps_policy else None
     n = s["messages"]
     print(f"messages={n} NER: {N.STATUS if a.ner else 'off'} version={VERSION} (synthetic, throwaway stores)")
     print(f"ok={s['ok']}  quarantined={s['quarantined']} ({100 * s['quarantined'] / n:.1f}%)")
@@ -230,6 +265,7 @@ def main() -> None:
         pipe = Pipeline(tr, q, vocab=corpus_vocab())
         rf = run_corpus(fixed, pipe, T.LEAK_CATS + C.CATEGORIES_REGRESSION)
         rl = run_corpus(lim, pipe, T.LEAK_CATS + C.CATEGORIES_REGRESSION)
+        rcp = caps_policy_corpus(fixed + lim, pipe) if a.caps_policy else None
     print(f"\nREGRESSION set (Run 10 leak read; ADR 0012 to 0014): fixed kinds, messages={rf['messages']} ok={rf['ok']}"
           f" quarantined={rf['quarantined']}")
     print("  quarantined messages by reason:", dict(sorted(rf["reason_msgs"].items())) or "none")
@@ -238,6 +274,10 @@ def main() -> None:
     print(f"LIMITATION kinds (A2, un-cued patient names): messages={rl['messages']} ok={rl['ok']} quarantined={rl['quarantined']}")
     print("  quarantined messages by reason:", dict(sorted(rl["reason_msgs"].items())) or "none")
     print(f"  released with a lowercase name: {dict(rl['ok_name_kinds']) or 0}; with initials: {dict(rl['ok_initials_kinds']) or 0}")
+    if cp is not None:
+        print("\nCAPS CLASSIFIER (draft ADR 0017; measure only, nothing above changes)")
+        print_caps_policy("MAIN corpus", cp)
+        print_caps_policy("REGRESSION + LIMITATION sets", rcp)
 
 
 
