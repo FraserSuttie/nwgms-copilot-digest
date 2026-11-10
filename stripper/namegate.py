@@ -9,7 +9,10 @@ Rules (Comms-Intake-Design section 6, plus Fraser's decisions of 27 Oct 2026):
 - Everything else is stripped as [NAME-n]: numbered per message, same name same number, one-way.
 - ADR 0015: ignore-list words are trimmed from the edges of a span (a span of only ignore words passes); a bare
   first name or nickname shared by several staff counts as ONE person when it is the first name of exactly one
-  Trust header participant of this message (surnames stay ambiguous); a place span made only of staff-name or ignore words is gated as a name (loc_as_name).
+  Trust header participant of this message (surnames stay ambiguous); a place span made only of staff-name or
+  ignore words is gated as a name (loc_as_name).
+- ADR 0016: a hyphenated word counts as an ignore word when every part is one; Directory two-token names also match
+  in 'Surname First' order.
 - Decisions carry positions and reason codes only. Unknown names are counted in the review store.
 
 No network, no AI. The state directory (allowlist, review counts) is local and must not live in
@@ -115,14 +118,23 @@ class People:
 
 
 _WORD = re.compile(r"\S+")
+_PART = re.compile(r"[a-z0-9']+")
+
+
+def ignored_word(word: str, ignore) -> bool:
+    """ADR 0016: a word is an ignore-list word if it is an entry, or every hyphen/punctuation-separated part of it is
+    (the file loader splits 'Zen-Trix-01' into zen, trix, 01, while the gate sees the whole word)."""
+    n = norm(word)
+    parts = _PART.findall(n)
+    return bool(n) and (n in ignore or (bool(parts) and all(p in ignore for p in parts)))
 
 
 def _trim_ignored(text: str, s: int, e: int, ignore) -> tuple[int, int]:
     """ADR 0015: drop ignore-list words from both ends of [s, e). Returns (s, s) when every word is ignored."""
     words = [(m.start() + s, m.end() + s) for m in _WORD.finditer(text[s:e])]
-    while words and norm(text[words[0][0]:words[0][1]]) in ignore:
+    while words and ignored_word(text[words[0][0]:words[0][1]], ignore):
         words.pop(0)
-    while words and norm(text[words[-1][0]:words[-1][1]]) in ignore:
+    while words and ignored_word(text[words[-1][0]:words[-1][1]], ignore):
         words.pop()
     return (words[0][0], words[-1][1]) if words else (s, s)
 
@@ -131,7 +143,7 @@ def loc_as_name(text: str, s: int, e: int, people: People, ignore=frozenset()) -
     """ADR 0015: an NER place span whose every word is a staff-name token or an ignore-list word (invented example:
     a sign-off 'Quimby' tagged as a place) is a name candidate for the gate, not a [LOC]."""
     words = norm(text[s:e]).split()
-    return bool(words) and all(w in people.tokens or w in ignore for w in words)
+    return bool(words) and all(w in people.tokens or ignored_word(w, ignore) for w in words)
 
 
 INTERNAL_ORG = re.compile(r"\s*(?:NWGMS|MFT)\b", re.I)
@@ -161,7 +173,7 @@ def parse_directory(markdown: str) -> People:
             continue
         full = cells[1]
         base = _BRACKETED.sub("", full)
-        ppl.add(base, "DIR")
+        ppl.add(base, "DIR", both_orders=True)   # ADR 0016: 'Surname First' in a body or signature matches the row
         last = norm(base).split()[-1:] or [""]
         for nick in re.findall(r"\(([^)]*)\)", full):
             if len(nick.split()) == 1:
