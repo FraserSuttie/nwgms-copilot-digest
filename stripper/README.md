@@ -13,16 +13,16 @@ Synthetic data only. Nothing here reads real mail.
 | `review.py` | Local review-queue CLI for unknown names (run by Fraser only; state outside the repo and OneDrive); hides ignore-file words, marks vocab-only ones (ADR 0016) |
 | `transform.py` | Transform engine: placeholders, keyed REF/SMP/WS/QC/CASE tokens, CONTACT/ATT, `[NAME-n]`, `[CLIN]` escalations (ADR 0004). `python stripper/transform.py` prints a counts-only corpus report |
 | `keystore.py` | Local key store (DPAPI via ctypes), decode tables, keyed message hash, audit log. State lives in `%LOCALAPPDATA%\nwgms-stripper`, never in the repo or OneDrive |
-| `residual.py` | Residual scan (fail-closed, emitted-token check), density check and cue check (`CUE_NAME`: unrecognised word after a patient cue, ADR 0008); `Limits` holds the thresholds (ADR 0005) |
+| `residual.py` | Residual scan (fail-closed, emitted-token check), density check and cue check (`CUE_NAME`: unrecognised word after a patient cue, ADR 0008); caps classifier and policy B (ADR 0017); `Limits` holds the thresholds (ADR 0005) |
 | `quarantine.py` | Whole-message quarantine store in the local state dir; `list` and `purge` CLI, counts only |
 | `pipeline.py` | Eligibility, transform, residual scan, density, quarantine. `python stripper/pipeline.py [--ner]` prints a counts-only corpus report |
 | `density.py` | Density threshold sweep over the synthetic corpus (`--ner` for the real numbers) |
 | `mailfront.py` | Email front end: `nwgms-rawdrop/1` contract check, normaliser (HTML, history, signature, disclaimers, encodings), message record (ADR 0006) |
-| `runner.py` | Email batch runner: raw drop to per-thread append-only blocks plus an `_Intake` batch manifest; counts only; NER required; `--caps-limit N` (default 1); `--phrases F` (ADR 0011) |
+| `runner.py` | Email batch runner: raw drop to per-thread append-only blocks plus an `_Intake` batch manifest; counts only; NER required; `--caps-limit N` (default 1); `--phrases F` (ADR 0011); `--caps-policy B|off` (default B, ADR 0017) |
 | `capsscan.py` | Read-only scan of a raw drop through `Pipeline.evaluate` for the caps tools; keeps unknown capitalised words in memory only (ADR 0010) |
 | `capsdiag.py` | Count-only DENS_CAPS diagnostic: outcome groups, histogram, release curve by limit, shape and section splits, vocabulary coverage. Prints no word, writes no file |
 | `capsvocab.py` | Local vocabulary builder (Fraser only, terminal only): ranked words, flags, allow one at a time, appends to a local `--vocab` file; `--phrases F` for adjacent word pairs; `--list` writes nothing |
-| `capsclass.py` | Count-only measure of the draft caps classifier (draft ADR 0017): scores each held unknown capitalised word on position, shape and nearby identifiers and reports what policies A and B would release. Prints no word, writes no file; `pipeline.py --caps-policy` gives the synthetic measure |
+| `capsclass.py` | Count-only measure of the caps classifier (ADR 0017): scores each held unknown capitalised word on position, shape and nearby identifiers and reports what policies A and B would release. Prints no word, writes no file; `pipeline.py --caps-policy` gives the synthetic measure |
 | `decode.py` | Local decode CLI (run by Fraser only): tokens or `--thread` lookup table, terminal only, audit line, never message text (ADR 0007) |
 | `corpus/rawdrop.py` | Synthetic raw-drop generator and per-block scorer (counts only) |
 | `recall.py` | Per-category recall report, counts only (`--ner`, `--gate`); regression set table after the main one (`pipeline.py` prints its pipeline counts too, and released initials, which the name-fragment count cannot see) |

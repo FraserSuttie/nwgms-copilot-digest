@@ -6,7 +6,8 @@
 `outcome.fields` is None: there is NEVER partial output). Reason codes are counts only.
 
 Order: body size -> transform -> eligibility (result-style wording AND an identifier) -> residual scan
--> density check. Any reason, or any unexpected exception, sends the whole raw message to quarantine.
+-> density check -> caps policy (ADR 0017: a message held ONLY for unknown capitalised words is released when the
+classifier finds no name signal on any of them; NER must be active; the word count goes on the block). Any reason, or any unexpected exception, sends the whole raw message to quarantine.
 If the quarantine write itself fails, QuarantineError propagates and nothing is released.
 
 Corpus run (synthetic only, throwaway stores, counts only):
@@ -94,6 +95,12 @@ class Pipeline:
                         reasons.update(R.cue_check(text, allowed))
                 if lim.unknown_caps > 1 and caps_total >= lim.unknown_caps:
                     reasons["DENS_CAPS"] += 1
+                if lim.caps_policy == "B" and tr.use_ner and set(reasons) == {"DENS_CAPS"}:
+                    pol = R.caps_policy(r.fields, allowed, True)      # ADR 0017: release and flag, NER required
+                    if pol["release_b"]:
+                        del reasons["DENS_CAPS"]
+                        counts = counts.copy()
+                        counts["CAPS_RELEASED"] = pol["words"]
                 if not reasons and check is not None:
                     reasons.update(check(r.fields))
         except Exception:  # noqa: BLE001 - fail closed on anything unexpected
@@ -275,7 +282,7 @@ def main() -> None:
     print("  quarantined messages by reason:", dict(sorted(rl["reason_msgs"].items())) or "none")
     print(f"  released with a lowercase name: {dict(rl['ok_name_kinds']) or 0}; with initials: {dict(rl['ok_initials_kinds']) or 0}")
     if cp is not None:
-        print("\nCAPS CLASSIFIER (draft ADR 0017; measure only, nothing above changes)")
+        print("\nCAPS CLASSIFIER (ADR 0017; with NER on, policy B is already applied in the counts above; these are the messages still held for DENS_CAPS only)")
         print_caps_policy("MAIN corpus", cp)
         print_caps_policy("REGRESSION + LIMITATION sets", rcp)
 

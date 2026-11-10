@@ -51,7 +51,7 @@ class Signals(unittest.TestCase):
         self.assertEqual(tiers(text, ner=[(s, s + 7)])[0], ("HOLD", ["NER", "PROSE"]))
 
     def test_identifier_in_the_same_sentence_holds(self):
-        self.assertEqual(tiers("x\n\nREF-BCDFGHJK seen; Quendle was fine.")[0], ("HOLD", ["IDENT", "PROSE"]))
+        self.assertEqual(tiers("x\n\nREF-BCDFGHJK seen; the Quendle feed was fine.")[0], ("HOLD", ["IDENT", "PROSE"]))
         self.assertEqual(tiers("x\n\nREF-BCDFGHJK seen. The Quendle report is late.")[0], ("PROSE", ["PROSE"]))
 
     def test_title_case_line_is_neutral(self):

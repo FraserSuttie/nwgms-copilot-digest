@@ -47,6 +47,7 @@ class Limits:
     unknown_caps: int = 1         # DENS_CAPS when unknown capitalised words >= this: in any one field at 1, else the message total (ADR 0010)
     digit_run: int = 5            # DENS_DIGITS: any run of this many digits or more
     clin_markers: int = 3         # DENS_CLIN when [CLIN] occurs this many times or more
+    caps_policy: str = "B"        # ADR 0017: "B" releases a DENS_CAPS-only message when no unknown word is HOLD (NER on); "off"
 
 
 def scan_attachment(line: str, emitted) -> Counter:
@@ -239,17 +240,26 @@ def caps_profile(text: str, allowed: frozenset, part: str | None = None) -> Coun
 #   position (3): SUBJECT (subject line) or TITLE_LINE (Title Case line) is neutral; PROSE is not.
 #   shape (4):    TITLE (Mr/Dr... before), POSSESSIVE, PAIR (next to another unknown word or a [NAME-n]/[PT-...] token),
 #                 ALONE (only word on its line, as in a sign-off), GREETING (after hi/dear/thanks...), HEADER
-#                 (From/To/Cc field), NER (inside an NER person span).
+#                 (From/To/Cc field), NER (inside an NER person span), RELATIVE (within two words after a family word:
+#                 "mum says Xxxx"), ACTOR (no article before and a person verb after: "Xxxx is unwell").
 #   nearby (5):   IDENT (an identifier token in the same sentence: REF/SMP/WS/QC/CASE, [PT-...], [GMC-ID], [CLIN], [CRED]).
 # Tier: HOLD if any shape or nearby signal; else FLAG if the position is neutral; else PROSE. Signals and tiers are
 # fixed strings: nothing here returns or logs a word. Offsets use a same-length blanking, so a hit set can differ from
 # unknown_cap_hits in rare phrase edge cases (diagnostic only).
-CLASS_SHAPE = ("TITLE", "POSSESSIVE", "PAIR", "ALONE", "GREETING", "HEADER", "NER")
+CLASS_SHAPE = ("TITLE", "POSSESSIVE", "PAIR", "ALONE", "GREETING", "HEADER", "NER", "RELATIVE", "ACTOR")
 CLASS_SIGNALS = ("SUBJECT", "TITLE_LINE", "PROSE") + CLASS_SHAPE + ("IDENT",)
 CLASS_TIERS = ("FLAG", "PROSE", "HOLD")
 _IDENT_TOKEN = re.compile(r"^(?:(?:REF|SMP|WS|QC|CASE)-|\[(?:PT-|GMC-ID|CLIN|CRED))")
 _PAIR_TOKEN = re.compile(r"^\[(?:NAME-\d+|PT-[A-Z]+)\]$")
 _TITLES = frozenset("mr mrs ms miss mx dr prof professor sir dame".split())
+FAMILY = frozenset("""mum mummy mother mom dad daddy father son daughter wife husband partner baby brother sister nan nana
+gran granny grandma grandad grandpa grandmother grandfather aunt auntie uncle niece nephew cousin child twin sibling carer
+fiance fiancee boyfriend girlfriend""".split())
+_DETERMINERS = frozenset("the a an this that these those our your my their his her its each every no any some".split())
+_PERSON_VERB = re.compile(r"^\s+(?:is|was|has|had|says|said|will|would|can|could|isn't|wasn't|hasn't|seems|feels|felt|went|"
+                          r"came|called|rang|phoned|asked|told|wants|needs|lives|died|passed|attended|visited|"
+                          r"underwent|presented|reported|complained)\b", re.I)
+_WORDS_BEFORE = re.compile(r"[A-Za-z']+")
 _GREET = re.compile(r"(?:^|[\s,])(?:hi|hello|hey|dear|morning|afternoon|evening|thanks|thank you|cheers|regards|wishes|ta)"
                     r"[\s,!.]*$", re.I)
 
@@ -313,6 +323,11 @@ def classify_caps(text: str, allowed: frozenset, field_name: str = "message", ne
             sig.add("GREETING")
         if ner_spans and any(a < e and s < b for a, b in ner_spans):
             sig.add("NER")
+        prev = _WORDS_BEFORE.findall(t[ls:s])
+        if any(w.lower() in FAMILY for w in prev[-2:]):
+            sig.add("RELATIVE")
+        if not (prev and prev[-1].lower() in _DETERMINERS) and _PERSON_VERB.match(t[e:e + 20]):
+            sig.add("ACTOR")
         a0 = max(max(t.rfind(c, 0, s) for c in ".!?") + 1, t.rfind("\n\n", 0, s) + 2, s - 200, 0)   # same sentence,
         b0 = min([x for x in (t.find(c, e) for c in ".!?") if x >= 0]                              # 200 chars at most
                  + [x for x in (t.find("\n\n", e),) if x >= 0] + [e + 200, len(t)])

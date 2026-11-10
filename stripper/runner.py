@@ -1,7 +1,7 @@
 """Email batch runner (slice 4, ADR 0006). Run by Fraser on his laptop only; prints COUNTS ONLY, never values.
 
     python stripper/runner.py --drop D --state S --out O --directory P [--vocab F] [--ignore F]
-                              [--retry-quarantined] [--lane-active] [--caps-limit N] [--phrases F]
+                              [--retry-quarantined] [--lane-active] [--caps-limit N] [--phrases F] [--caps-policy B|off]
 
 --drop       raw-drop folder (one nwgms-rawdrop/1 JSON per message). May be OneDrive; refused in the repo or a vault.
 --state      local state (key store, review state, quarantine, seen index). Refused in the repo or OneDrive.
@@ -14,6 +14,8 @@
              adjacent in that order. Refused in the repo or OneDrive.
 --caps-limit unknown capitalised words that quarantine a message (DENS_CAPS), default 1: one in any field. Above 1 it is
              the message total (ADR 0010). The report prints the limit used.
+--caps-policy B (default) releases a message held ONLY for unknown capitalised words when none of them shows a name
+             signal (ADR 0017); the block's flags carry "unknown words N" for the Rule 9 screen. "off" holds them all.
 
 NER is always required here: the run stops if the layer is not active. Drop files are never modified or deleted.
 """
@@ -150,7 +152,10 @@ def render_block(msg_hash: str, rec: M.MessageRecord, stripped: dict, counts: Co
     subject, _, body = stripped["message"].partition("\n\n")
     atts = [stripped[k] for k in sorted((k for k in stripped if k.startswith("attachment_")),
                                         key=lambda k: int(k.split("_")[1]))]
-    flags = ", ".join(k.replace("_", " ") for k in sorted(rec.flags)) or "none"
+    counts = Counter(counts)
+    unknown = counts.pop("CAPS_RELEASED", 0)      # ADR 0017: released unknown words, a count for the Rule 9 screen
+    flags = ", ".join([k.replace("_", " ") for k in sorted(rec.flags)] + ([f"unknown words {unknown}"] if unknown else [])) \
+        or "none"
     return (f"<!-- block:{msg_hash} -->\n"
             f"### Message {msg_hash[:12]}\n"
             f"- sent: {rec.sent} | direction: {rec.direction}\n"
@@ -188,6 +193,9 @@ class Report:
     flags: Counter = field(default_factory=Counter)
     stopped: str = ""
     caps_limit: int = R.Limits().unknown_caps
+    caps_policy: str = R.Limits().caps_policy
+    caps_released: int = 0        # messages released under the caps policy (ADR 0017)
+    caps_words: int = 0           # unknown words in them
 
 
 def run(drop, state, out, directory_md: str, vocab=frozenset(), ignore_words=frozenset(), retry_quarantined=False,
@@ -207,7 +215,7 @@ def run(drop, state, out, directory_md: str, vocab=frozenset(), ignore_words=fro
     pipe = P.Pipeline(tr, quar, limits=limits, vocab=vocab)
     seen = Seen(state)
     msg_dir = out / "Comms" / "_Messages"
-    rep = Report(caps_limit=limits.unknown_caps)
+    rep = Report(caps_limit=limits.unknown_caps, caps_policy=limits.caps_policy)
     touched: dict[str, list[str]] = {}
     new_threads: set[str] = set()
     try:
@@ -267,6 +275,9 @@ def run(drop, state, out, directory_md: str, vocab=frozenset(), ignore_words=fro
                 touched.setdefault(thread, []).append(h)
             seen.add(h, "ok")
             rep.released += 1
+            if o.counts.get("CAPS_RELEASED"):
+                rep.caps_released += 1
+                rep.caps_words += o.counts["CAPS_RELEASED"]
     except Q.QuarantineError:
         rep.stopped = "quarantine write failed: run stopped, nothing further released"
     finally:
@@ -303,7 +314,9 @@ def write_manifest(out: Path, rep: Report, touched: dict, now: datetime) -> Path
 def report_counts(rep: Report) -> dict:
     return {"files read": rep.files, "unreadable": rep.unreadable, "schema rejects": rep.schema_rejects,
             "duplicates skipped": rep.duplicates, "released": rep.released, "quarantined": rep.quarantined,
-            "unknown-caps limit": rep.caps_limit, "quarantine reasons": _counts(rep.reasons), "threads touched": rep.threads_touched,
+            "unknown-caps limit": rep.caps_limit, "caps policy": rep.caps_policy,
+            "released under caps policy": f"{rep.caps_released} messages, {rep.caps_words} unknown words",
+            "quarantine reasons": _counts(rep.reasons), "threads touched": rep.threads_touched,
             "threads new": rep.threads_new, "torn blocks": rep.torn_blocks,
             "already written (replay)": rep.already_written, "attachments listed": rep.attachments,
             "inline images (not kept)": rep.inline_images, "front-end flags": _counts(rep.flags)}
@@ -329,6 +342,7 @@ def main(argv=None) -> int:
     ap.add_argument("--retry-quarantined", action="store_true")
     ap.add_argument("--lane-active", action="store_true")
     ap.add_argument("--caps-limit", type=int, default=R.Limits().unknown_caps)
+    ap.add_argument("--caps-policy", choices=("B", "off"), default=R.Limits().caps_policy)
     a = ap.parse_args(argv)
     try:
         check_paths(a.drop, a.state, a.out, a.vocab, a.ignore, a.lane_active, a.phrases)
@@ -347,7 +361,7 @@ def main(argv=None) -> int:
             raise Refused("the NER layer is not active; real runs require it")
         rep = run(a.drop, a.state, a.out, directory, vocab, ignore, a.retry_quarantined, a.lane_active,
                   use_ner=True, vocab_path=a.vocab, ignore_path=a.ignore, phrases_path=a.phrases,
-                  limits=R.Limits(unknown_caps=a.caps_limit))
+                  limits=R.Limits(unknown_caps=a.caps_limit, caps_policy=a.caps_policy))
     except Refused as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
