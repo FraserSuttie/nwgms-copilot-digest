@@ -69,8 +69,8 @@ def scan(text: str, emitted, people: G.People, ignore=frozenset(), use_ner: bool
     spans = []
     if use_ner:
         for h in N.detect_ner(norm):
-            if h.code == "NER_PERSON":
-                spans.append((h.start, h.end))
+            if h.code == "NER_PERSON" or (h.code == "NER_LOCATION" and G.loc_as_name(norm, h.start, h.end, people, ignore)):
+                spans.append((h.start, h.end))   # ADR 0015: a staff or ignore-list word tagged as a place is gated as a name
             elif norm[h.start:h.end].lower() in allowed:
                 continue
             elif not any(h.start < x.end and x.start < h.end for x in hits):

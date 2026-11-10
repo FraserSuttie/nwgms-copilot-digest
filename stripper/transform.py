@@ -38,7 +38,7 @@ import keystore as K  # noqa: E402
 import namegate as G  # noqa: E402
 import ner as N  # noqa: E402
 
-STRIPPER_VERSION = "0.8.5-credfix"
+STRIPPER_VERSION = "0.8.6-spans"
 
 FIXED = {
     "NHS_NUMBER": "[PT-NHS]", "TEN_DIGITS": "[PT-NUM]", "DIGITS_AS_WORDS": "[PT-NUM]", "PATIENT_NUMBER": "[PT-NUM]",
@@ -137,8 +137,10 @@ class Transformer:
                 if G.norm(display):
                     ext_names[G.norm(display)] = n
         people = self.people.with_header(header_people)
-        spans = [(h.start, h.end) for h in hits if h.code == "NER_PERSON"]
-        hits = [h for h in hits if h.code != "NER_PERSON"]
+        as_name = [h.code == "NER_PERSON" or (h.code == "NER_LOCATION" and G.loc_as_name(text, h.start, h.end, people, self.ignore))
+                   for h in hits]                                           # ADR 0015: a staff name tagged as a place
+        spans = [(h.start, h.end) for h, a in zip(hits, as_name) if a]
+        hits = [h for h, a in zip(hits, as_name) if not a]
         decisions, _ = G.gate(text, spans, people, ignore=self.ignore, review=self.review)
 
         res = TextResult(text)

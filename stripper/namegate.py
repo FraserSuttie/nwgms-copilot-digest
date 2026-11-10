@@ -7,6 +7,9 @@ Rules (Comms-Intake-Design section 6, plus Fraser's decisions of 27 Oct 2026):
   in a salutation, sign-off or speaker-label position, or that person's full name also passed
   elsewhere in the same message. Ambiguous or mid-sentence bare names are stripped.
 - Everything else is stripped as [NAME-n]: numbered per message, same name same number, one-way.
+- ADR 0015: ignore-list words are trimmed from the edges of a span (a span of only ignore words passes); a bare
+  first name or nickname shared by several staff counts as ONE person when it is the first name of exactly one
+  Trust header participant of this message (surnames stay ambiguous); a place span made only of staff-name or ignore words is gated as a name (loc_as_name).
 - Decisions carry positions and reason codes only. Unknown names are counted in the review store.
 
 No network, no AI. The state directory (allowlist, review counts) is local and must not live in
@@ -53,9 +56,10 @@ class People:
     full: dict = field(default_factory=dict)
     tokens: dict = field(default_factory=dict)  # first/last token -> set of canonical full names
     canon: dict = field(default_factory=dict)   # other-order variant -> canonical full name (ADR 0009)
+    header: dict = field(default_factory=dict)  # Trust header participant (canonical) -> first-name forms (ADR 0015)
 
     def copy(self) -> "People":
-        return People(dict(self.full), {k: set(v) for k, v in self.tokens.items()}, dict(self.canon))
+        return People(dict(self.full), {k: set(v) for k, v in self.tokens.items()}, dict(self.canon), {k: set(v) for k, v in self.header.items()})
 
     def add(self, name: str, source: str, both_orders: bool = False, label: bool = False) -> None:
         """`both_orders`: also accept 'second first' for a two-token name (Trust 'Surname Forename' display names);
@@ -101,7 +105,33 @@ class People:
             if any(dom == d or dom.endswith("." + d) for d in trusted):
                 two = len(norm(display).split()) == 2     # anything else is a label (shared mailbox): exact string only
                 out.add(display, "HEADER", both_orders=two, label=not two)
+                if two:
+                    n = norm(display)
+                    c = out.canon.get(n, n)
+                    last = c.split()[-1]   # first-name forms: the canonical name and its nickname aliases, not the other order
+                    out.header[c] = {v.split()[0] for v in [c, *(v for v, cc in out.canon.items() if cc == c)]
+                                     if v.split()[-1] == last}
         return out
+
+
+_WORD = re.compile(r"\S+")
+
+
+def _trim_ignored(text: str, s: int, e: int, ignore) -> tuple[int, int]:
+    """ADR 0015: drop ignore-list words from both ends of [s, e). Returns (s, s) when every word is ignored."""
+    words = [(m.start() + s, m.end() + s) for m in _WORD.finditer(text[s:e])]
+    while words and norm(text[words[0][0]:words[0][1]]) in ignore:
+        words.pop(0)
+    while words and norm(text[words[-1][0]:words[-1][1]]) in ignore:
+        words.pop()
+    return (words[0][0], words[-1][1]) if words else (s, s)
+
+
+def loc_as_name(text: str, s: int, e: int, people: People, ignore=frozenset()) -> bool:
+    """ADR 0015: an NER place span whose every word is a staff-name token or an ignore-list word (invented example:
+    a sign-off 'Quimby' tagged as a place) is a name candidate for the gate, not a [LOC]."""
+    words = norm(text[s:e]).split()
+    return bool(words) and all(w in people.tokens or w in ignore for w in words)
 
 
 INTERNAL_ORG = re.compile(r"\s*(?:NWGMS|MFT)\b", re.I)
@@ -199,15 +229,22 @@ def gate(text: str, ner_spans, people: People, ignore=frozenset(), review: Count
     spans.sort()
 
     info = []  # (start, end, normalised, token count)
+    ignored = set()
     for s, e in spans:
         n = norm(text[s:e])
-        if n:
+        if n and n not in ignore:
+            ts, te = _trim_ignored(text, s, e, ignore)   # ADR 0015: 'Zentrix' in 'Zentrix Down' passes, 'Down' is gated
+            if ts == te:
+                ignored.add((s, e))
+            elif (ts, te) != (s, e):
+                s, e, n = ts, te, norm(text[ts:te])
+        if n and all((s, e) != (x[0], x[1]) for x in info):
             info.append((s, e, n, len(n.split())))
 
     present = set()  # full names that passed anywhere in this message
     out: dict[tuple[int, int], tuple[str, str]] = {}
     for s, e, n, k in info:
-        if n in ignore:
+        if n in ignore or (s, e) in ignored:
             out[(s, e)] = ("pass", "IGNORED")
         elif k >= 2 and n in people.full:
             out[(s, e)] = ("pass", "FULL_" + people.full[n])
@@ -218,6 +255,10 @@ def gate(text: str, ner_spans, people: People, ignore=frozenset(), review: Count
         if (s, e) in out:
             continue
         who = people.tokens.get(n, set())
+        if len(who) > 1:   # ADR 0015: a FIRST name (or nickname) of exactly one Trust header participant of this message
+            on_header = {c for c in who if n in people.header.get(c, ())}
+            if len(on_header) == 1:
+                who = on_header
         if len(who) == 1:
             pos = _position_ok(text, s, e)
             if pos:
